@@ -1,0 +1,32 @@
+name: LGTM
+description: Score pull requests with System One decision models
+author: Temikus
+branding:
+  icon: check-circle
+  color: green
+
+inputs:
+  api-key:
+    description: Model provider API key (OpenRouter by default). Use a dedicated key with a spend limit. Not needed for the lgtm-review workflow.
+    required: false
+  github-token:
+    description: Token for the GitHub API.
+    default: ${{ github.token }}
+  base-url:
+    description: Custom https provider base URL, such as a proxy. Only workflow authors can set this; repo config can't.
+    required: false
+
+outputs:
+  verdict:
+    description: approve, deny, or needs-human
+  score:
+    description: Aggregate score from 0 to 1
+
+runs:
+  using: docker
+  # Replaced by a digest-pinned GHCR image at release.
+  image: Dockerfile
+  args: [action]
+  env:
+    GITHUB_TOKEN: ${{ inputs.github-token }}
+    LGTM_API_KEY: ${{ inputs.api-key }}

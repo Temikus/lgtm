@@ -7,6 +7,7 @@ import (
 
 	"github.com/Temikus/lgtm/internal/config"
 	"github.com/Temikus/lgtm/internal/engine"
+	"github.com/Temikus/lgtm/internal/ghout"
 	"github.com/Temikus/lgtm/internal/prstate"
 	"github.com/Temikus/lgtm/internal/report"
 )
@@ -14,13 +15,15 @@ import (
 func newScoreCmd() *cobra.Command {
 	var (
 		asJSON  bool
+		post    bool
 		cfgPath string
 	)
 	cmd := &cobra.Command{
 		Use:   "score <owner/repo#N | PR URL>",
 		Short: "Score a pull request and print the result",
 		Long: "Score a pull request from your machine. Config comes from the local checkout\n" +
-			"(" + config.Path + " by default). Nothing is posted to the PR.",
+			"(" + config.Path + " by default). With --post, the sticky comment is posted\n" +
+			"as you; check runs need a GitHub App token, so only the Action creates them.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
@@ -45,7 +48,18 @@ func newScoreCmd() *cobra.Command {
 				return fmt.Errorf("reading %s/%s#%d: %w", owner, repo, n, err)
 			}
 
-			r := engine.Score(ctx, gh, prstate.FromPullRequest(owner, repo, p), engine.Options{Config: cfg, Decider: d})
+			pr := prstate.FromPullRequest(owner, repo, p)
+			r := engine.Score(ctx, gh, pr, engine.Options{Config: cfg, Decider: d})
+			if post {
+				me, _, err := gh.Users.Get(ctx, "")
+				if err != nil {
+					return fmt.Errorf("reading your GitHub login: %w", err)
+				}
+				pub := ghout.Publisher{GH: gh, PR: pr, CommentAuthor: me.GetLogin()}
+				if err := pub.Comment(ctx, report.Comment(r)); err != nil {
+					return err
+				}
+			}
 			if asJSON {
 				b, err := report.JSON(r)
 				if err != nil {
@@ -59,6 +73,7 @@ func newScoreCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "print JSON")
+	cmd.Flags().BoolVar(&post, "post", false, "post or update the sticky comment on the PR")
 	cmd.Flags().StringVar(&cfgPath, "config", config.Path, "config file")
 	return cmd
 }

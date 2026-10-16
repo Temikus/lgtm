@@ -1,0 +1,37 @@
+# LGTM scores pull requests with a System One decision model.
+# https://github.com/Temikus/lgtm
+name: LGTM
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+  pull_request_review:
+    types: [submitted]
+
+permissions: {}
+
+concurrency:
+  # Per event, so a review can't cancel a scoring run or the other way round.
+  group: lgtm-${{ github.event_name }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  lgtm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      checks: write
+      pull-requests: write
+      issues: write
+      contents: read
+    # pull_request_target gives this job secrets and a write token while the
+    # PR is untrusted. Never add a checkout or any other step to this job:
+    # PR code running here would get both. LGTM reads the diff through the
+    # API and its config from the base branch.
+    steps:
+      # Dogfood: runs this repo's main branch. Users should pin a release
+      # (`lgtm init` writes Temikus/lgtm@v0 and the SHA-pinned form).
+      - uses: Temikus/lgtm@main
+        with:
+          # Use a dedicated key with a spend limit.
+          api-key: ${{ secrets.OPENROUTER_API_KEY }}

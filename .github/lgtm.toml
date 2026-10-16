@@ -1,0 +1,35 @@
+# LGTM config. Read from the base branch, so a PR can't change it.
+# Check it with `lgtm config validate`.
+
+provider = "openrouter"        # openrouter | typesafe
+model = "typesafe/jev-1.13"
+
+# shadow reports what LGTM would have done and gates nothing. Run in shadow
+# first, then calibrate with `lgtm replay --write` before switching to
+# enforce. Enforce mode belongs alongside required human reviewers, never
+# instead of them.
+mode = "shadow"
+
+# Shadow-mode thresholds. A [calibration] table for the configured model
+# replaces them.
+approve_at = 0.9
+deny_at = 0.1
+
+# Fork PRs from authors without write access never get approve.
+trust_forks = false
+
+# Matching files are listed but their patches are not sent to the model.
+# Setting this replaces the defaults.
+# exclude = ["**/*.lock", "**/go.sum", "**/package-lock.json", "**/pnpm-lock.yaml", "vendor/**", "**/*.pb.go", "**/*.min.*"]
+
+# Turn a default question into a gate, switch one off, or add your own.
+# [questions.described]
+# gate = true
+#
+# [questions.tested]
+# enabled = false
+#
+# [questions.migration_safe]
+# type = "noul"
+# gate = true
+# instructions = "If the diff adds a database migration, can it run without locking large tables?"

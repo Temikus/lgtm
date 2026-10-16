@@ -2,6 +2,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -16,7 +17,11 @@ var (
 
 func main() {
 	if err := newRootCmd().Execute(); err != nil {
-		os.Exit(1)
+		var ee exitError
+		if !errors.As(err, &ee) {
+			fmt.Fprintln(os.Stderr, "lgtm:", err)
+		}
+		os.Exit(exitCode(err))
 	}
 }
 
@@ -25,7 +30,7 @@ func newRootCmd() *cobra.Command {
 		Use:           "lgtm",
 		Short:         "Score pull requests with System One decision models",
 		SilenceUsage:  true,
-		SilenceErrors: false,
+		SilenceErrors: true,
 	}
 	root.AddCommand(&cobra.Command{
 		Use:   "version",
@@ -34,6 +39,6 @@ func newRootCmd() *cobra.Command {
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "lgtm %s (%s)\n", version, commit)
 		},
 	})
-	root.AddCommand(newScoreCmd(), newConfigCmd())
+	root.AddCommand(newScoreCmd(), newConfigCmd(), newActionCmd(), newInitCmd())
 	return root
 }

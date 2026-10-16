@@ -109,6 +109,8 @@ Roles:
 - **cap**: never enters the aggregate and never denies. If its value is below `approve_at`, the verdict is capped at needs-human.
 - **–**: informational.
 
+`choice` options are an ordered array, `options = [{name = "...", definition = "..."}]`, because the consistency check reverses their order.
+
 Example config:
 
 ```toml
@@ -141,7 +143,7 @@ instructions = "If the diff adds a database migration, can it run without lockin
 
 Config rules:
 
-- `provider` is an enum. The base URL for each provider is hardcoded and HTTPS. A custom base URL is only accepted from the `LGTM_BASE_URL` env var or the Action's `base-url` input, which only workflow authors control, and it must be `https://`.
+- `provider` is an enum. The base URL for each provider (including `/v1`) is hardcoded and HTTPS. A custom base URL is only accepted from the `LGTM_BASE_URL` env var or the Action's `base-url` input, which only workflow authors control, and it must be `https://`.
 - Validation enforces `0 < deny_at < approve_at < 1`, at least one gating question, at most 20 questions, instructions of at most 2,000 characters, and at most 32 options per `choice`.
 - In action mode, config is fetched through the Contents API at the PR's base SHA. It is never read from the workspace, so how the user checked out doesn't matter.
 - The CLI reads config from the local checkout.
@@ -176,7 +178,7 @@ Config rules:
    - `files`: path, status, ± counts, and patch for each file.
    - `excluded`: path, status, and ± counts for files matched by `exclude`. No patch.
 3. Apply excluded globs. Defaults: lockfiles, `go.sum`, `vendor/**`, generated `*.pb.go`, and `*.min.*`. Excluded files still appear in `excluded` so `aligned` and `scoped` can see they exist, and the report lists them.
-4. Estimate the size at about 4 bytes per token, as Denkeeper's `EstimateDecisionTokens` does.
+4. Estimate the size at about 3 bytes per token, as Denkeeper's `EstimateDecisionTokens` does. That's deliberately conservative for JSON.
 5. If it still doesn't fit:
    - Ask the diff-local questions (`safe`, `scoped`, `injection`) over patch batches that fit, and take the min across batches. Cap batches at 16 per PR.
    - Ask the PR-level questions over the file list with stats and trimmed patches.
@@ -195,7 +197,7 @@ A partial view can deny or escalate but **never approve**. The report says which
 - **Author trust.** `trust_forks = false` (default) caps fork PRs from untrusted authors at needs-human. "Trusted" means the author's repo permission is `write`, `maintain`, or `admin`, checked with the collaborator permission API. `author_association` is not used, because `CONTRIBUTOR` only means a merged commit and `COLLABORATOR` includes read-only invitees.
 - **SHA pinning.** The diff, the check run, and the sticky comment's recorded SHA all use `head.sha` from the event payload. The check run result binds to the commit that was scored, so a push between the event and the fetch can't move a verdict onto a different commit.
 - **Human approval.** On `pull_request_review: submitted`, the needs-human check flips to success only if an approving review exists that is not dismissed, whose `commit_id` equals the current `head.sha`, and whose author has `write` or higher. The prior verdict is read from the existing `LGTM` check run on that SHA, which users can't edit. No model call. If no such check run exists, the run scores normally.
-- **Provider.** The client rejects a response whose `model` differs from the request or that lacks an answer for any question ID. TLS verification is always on. Bodies are capped at 1 MiB. Provider error text is capped at 200 characters and escaped before it reaches a comment or check run.
+- **Provider.** The client rejects a response whose `model` differs from the request (a dated snapshot such as `typesafe/jev-1.13-20260917` counts as the same model) or that lacks an answer for any question ID. TLS verification is always on. Bodies are capped at 1 MiB. Provider error text is capped at 200 characters and escaped before it reaches a comment or check run.
 - **Reporting surfaces.** The sticky comment is selected by marker *and* by author `github-actions[bot]`, so a pre-posted `<!-- lgtm -->` comment by someone else is ignored. File paths, provider errors, and every other untrusted string are escaped before rendering as markdown.
 - **Logging.** The state JSON, request bodies, and keys are never logged unless `LGTM_DEBUG=1`. Action logs on public repos are public.
 - **Cost.** The generated workflow sets `timeout-minutes` and a `concurrency` group per PR with cancel-in-progress. Retries are bounded at 5 attempts. The docs and `lgtm init` tell users to create a dedicated model key with a spend limit.
@@ -255,7 +257,7 @@ lgtm replay <owner/repo> [--since 90d] [--max-prs 300] [--budget-usd 2] [--write
 - `lgtm init`: writes `.github/workflows/lgtm.yml` and a commented `.github/lgtm.toml`. The workflow:
   - triggers on `pull_request_target` (`opened`, `synchronize`, `reopened`, `edited`) and `pull_request_review` (`submitted`);
   - sets `permissions` to `checks: write`, `pull-requests: write`, `issues: write`, `contents: read`;
-  - sets `concurrency` keyed by PR number with cancel-in-progress, and `timeout-minutes: 10`;
+  - sets `concurrency` keyed by event name and PR number with cancel-in-progress (so a review event can't cancel a scoring run), and `timeout-minutes: 10`;
   - has no checkout step and a comment explaining why nothing else may be added to this job;
   - pins the action to a release tag, with a comment showing the SHA-pinned form.
 - `lgtm replay <owner/repo> ...`: see [Calibration and replay](#calibration-and-replay).
@@ -270,6 +272,8 @@ internal/config/     TOML load (go-toml/v2), defaults, validation, Contents API 
 internal/rubric/     default questions, config merge, answer normalisation
 internal/prstate/    compare at pinned SHAs (go-github), exclude globs, state builder, batching, partial-view detection
 internal/verdict/    aggregate, thresholds, caps, mode
+internal/engine/     one scoring run (fetch → plan → ask → verdict), shared by score, action, and replay
+internal/ghtest/     fake GitHub REST server over httptest for tests
 internal/trust/      author permission lookup, approving-review check
 internal/report/     comment markdown, check-run output, JSON, escaping
 internal/ghout/      post check run / sticky comment / labels
@@ -314,10 +318,12 @@ It's one landing page:
 
 ## Milestones
 
+Progress: 1 and 2 done (2026-10-16).
+
 1. **Bootstrap.**
    - Public repo with an Apache-2.0 license and a `SECURITY.md`.
    - README with CI and License badges (no coverage badge).
-   - justfile with `build test test-integration lint fmt check site-dev site-test site-deploy`.
+   - justfile with `build lint fmt check test [unit|site|integration] scan release site-dev site-deploy`.
    - `ci.yml`: vet, test, golangci-lint, govulncheck.
    - `.golangci.yml` and `renovate.json`.
 2. **Core plus `lgtm score`:** `jev`, `config`, `rubric`, `prstate`, `verdict`, `trust`, and `report`, written TDD-style.
@@ -329,7 +335,7 @@ It's one landing page:
    - Enforce mode requires a calibration.
    - Run it on Temikus/denkeeper and Temikus/butter history, and publish the results in `docs/calibration.md`.
 5. **Website** on getlgtm.dev, with `website.yml` deploying it.
-6. **Release v0.1.0:** GoReleaser binaries, a GHCR image pinned by digest in `action.yml`, keyless cosign signing via OIDC, build provenance attestations, a release workflow with `contents: write` and `id-token: write` only, and the `v0` major tag for the Action.
+6. **Release v0.1.0:** GoReleaser binaries, a GHCR image pinned by digest in `action.yml` (the release workflow pushes the image, commits the digest pin, then tags that commit), keyless cosign signing via OIDC, build provenance attestations, a release workflow with `contents: write` and `id-token: write` only, and the `v0` major tag for the Action.
 
 ## Backlog (tracked as GitHub issues)
 
@@ -345,7 +351,7 @@ It's one landing page:
 - An `OPENROUTER_API_KEY` with a spend limit, for local integration tests and the dogfood workflow (as a repo secret).
 - `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` as repo secrets, and a D1 database `lgtm-waitlist`.
 - Sign-off on the landing page copy and design before the first deploy.
-- **Open question:** confirm whether `pull_request_review` events on fork PRs receive secrets and a write `GITHUB_TOKEN`. If not, the human-approval flip can't fire for forks and the docs must say so.
+- **Open question:** confirm whether `pull_request_review` events on fork PRs receive secrets and a write `GITHUB_TOKEN`. If not (expected), a companion `workflow_run` workflow runs the approval-only flip in the base repo's context; it needs no model key.
 
 ## Risks
 

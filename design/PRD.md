@@ -164,7 +164,7 @@ Config rules:
   1. Any `cap` question below `approve_at`.
   2. Partial view (see [Large PRs](#large-prs)).
   3. Untrusted author (see [Trust](#trust)).
-  4. Model version change: the reply names a different dated version than the calibration's `snapshot` (see [Calibration and replay](#calibration-and-replay)). The reason reads "model changed from X to Y since calibration, re-run `lgtm replay`". It applies whenever the thresholds come from a calibration that recorded a `snapshot`. In shadow mode it shows in the report like any other cap.
+  4. Model version change: the reply names a different dated version than the calibration's `snapshot` (see [Calibration and replay](#calibration-and-replay)). The reason tells the user to re-run `lgtm replay --write`, and the details line names the version the replies gave. It applies whenever the thresholds come from a calibration that recorded a `snapshot`. In shadow mode it shows in the report like any other cap.
   5. Borderline approve that fails the consistency check: if the aggregate is within `borderline_margin` (default 0.05) of `approve_at`, LGTM asks every gating or cap `choice` question again with its options in reverse order. If any answer changes, the verdict is capped. Position bias is worst on low-margin cases, so this costs extra calls only where it matters. A noul has no option order, so the default rubric doesn't use this cap. It applies to custom `choice` gates.
 - **Thresholds come from calibration, not defaults.** The defaults of 0.9 and 0.1 are only for shadow mode. Enforce mode needs a `[calibration]` table written by `lgtm replay` (see [Calibration and replay](#calibration-and-replay)) whose `model` matches the configured model. Otherwise config validation fails, unless `allow_uncalibrated = true` is set. Changing the model invalidates the calibration.
 - **Modes:**
@@ -223,7 +223,8 @@ A partial view can deny or escalate but **never approve**. The report says which
 Raw Jev probabilities aren't calibrated, and the bias profile changes with the task and the model version. `lgtm replay` scores past PRs, compares the results with what humans decided, and chooses the thresholds. It's the PR-side version of Denkeeper's `decide replay`.
 
 ```
-lgtm replay <owner/repo> [--since 90d] [--max-prs 300] [--budget-usd 2] [--write] [--perturb]
+lgtm replay <owner/repo> [--since 90d] [--max-prs 300] [--budget-usd 2] [--labels strict|merged]
+            [--target-precision 0.95] [--write] [--perturb] [--perturb-sample 10] [--dry-run]
 ```
 
 - **Labels from history**, fetched through the GitHub API:
@@ -231,23 +232,31 @@ lgtm replay <owner/repo> [--since 90d] [--max-prs 300] [--budget-usd 2] [--write
   - negative: closed unmerged after a changes-requested review, or reverted within 14 days.
   - Rubber-stamp approvals (no review comments, and approved within 5 minutes of a diff over 200 lines) are marked low-confidence. Low-confidence PRs are reported but don't count towards the fit.
   - Everything else is left unlabelled.
+  - Reviewer write access comes from the permission API. That API needs push access, so on a repo the caller can't push to, replay falls back to the review's `author_association` (OWNER, MEMBER, or COLLABORATOR). This is only for labelling history; the Action never uses it for trust.
+  - `--labels merged` is for repos with one maintainer, where nobody else reviews: merged is positive (merging takes write access), closed unmerged or reverted is negative, and bot PRs are skipped. These labels record what shipped, not what a reviewer judged, and the report says so.
+  - `--dry-run` labels history and stops, so users can see whether there are enough labels before any model call.
+  - Found while building (2026-10-16): strict negatives are rare. cli/cli had 147 positives and 4 negatives in 300 closed PRs over a year; Temikus/denkeeper had 1 positive and butter none, since nobody else reviews there. In merged mode denkeeper had 208 and 5.
 - **Content-free probe:** each question is asked against an empty and a shuffled-hunks PR. This reports the question's baseline (its prior). A gating question with a baseline above `approve_at` gets a warning, because it can't tell PRs apart.
 - **Threshold fit:** a sweep over the aggregate.
   - `approve_at` is the lowest value at which LGTM's approvals reach the target precision against human approvals (`--target-precision`, default 0.95).
   - `deny_at` is set the same way against negatives.
   - If no value reaches the target, replay says so and doesn't write a calibration.
+  - The fit needs at least 5 fitted positives and 5 negatives, and each threshold must cover at least 5 PRs; below that a precision figure means little.
+  - Replay turns off the borderline re-ask, since the fit works on the aggregate. Its metrics count the re-ask as passed.
+  - `--write` rounds `approve_at` up and `deny_at` down to 4 decimals, so rounding never widens either verdict.
 - **Report:**
   - precision and recall per verdict;
   - a reliability table (ECE) per gating question against the PR-level outcome;
   - the size of the needs-human band;
   - a list of disagreements to review by hand. Historical human decisions are noisy, so a disagreement is a case to look into, not automatically an error.
 - **`--write`** stores `[calibration]` in `.github/lgtm.toml` with `model`, `snapshot`, `date`, `n_labelled`, `approve_at`, `deny_at`, and the precision it achieved. `snapshot` is the dated version the replies named, such as `typesafe/jev-1.13-20260917`. The provider can move a short name like `typesafe/jev-1.13` to a newer version, and the cutoffs only hold for the version they were fitted on. If replay sees more than one version, it writes nothing.
-- **`--perturb`** runs a robustness suite, using CALM's method (ICLR 2025). It applies controlled edits to a sample of PRs and reports how often the verdict flips, against a baseline of the same PR scored twice. The edits are:
+- **`--perturb`** runs a robustness suite, using CALM's method (ICLR 2025). It applies controlled edits to the `--perturb-sample` labelled PRs nearest `approve_at`, where a flip would change the verdict, and reports how often the verdict flips, against a baseline of the same PR scored twice. The edits are:
   - a reworded description;
   - a fake authority claim in the description and in a code comment;
   - an unrelated distractor hunk;
   - `choice` options reversed;
-  - `choice` option names swapped against their definitions, to catch the model following names.
+  - `choice` option names swapped against their definitions, to catch the model following names. Answers are mapped back by definition, so a model that reads definitions shows no flip.
+  - The reworded description is deterministic: paragraphs reversed and list markers changed. No second model rewrites it.
   - A flip rate well above the baseline is reported per edit and per question.
 - **Shadow-mode metrics** go into the replay report when the repo has run in shadow mode. Agreement with human verdicts is the main one. It also includes time-to-merge and human review comments per PR, split by LGTM verdict. Industry results on review speed are mixed, and bot output can reduce how closely humans look.
 - Per-question calibration maps (Platt or isotonic) are a follow-up. They need per-question labels, which only come from reviewed disagreements; history only gives PR-level outcomes.
@@ -335,7 +344,7 @@ Progress: 1, 2, and 3 done (2026-10-16).
 4. **Replay and calibration:**
    - `lgtm replay` with the history labels, content-free probe, threshold fit, `--write`, and `--perturb`.
    - Enforce mode requires a calibration, and caps at needs-human when the replies name a different version than its `snapshot`.
-   - Run it on Temikus/denkeeper and Temikus/butter history, and publish the results in `docs/calibration.md`.
+   - Run it on Temikus/denkeeper and Temikus/butter history with `--labels merged`, and on cli/cli with strict labels, and publish the results in `docs/calibration.md`.
 5. **Website** on getlgtm.dev, with `website.yml` deploying it.
 6. **Release v0.1.0:** GoReleaser binaries, a GHCR image pinned by digest in `action.yml` (the release workflow pushes the image, commits the digest pin, then tags that commit), keyless cosign signing via OIDC, build provenance attestations, a release workflow with `contents: write` and `id-token: write` only, and the `v0` major tag for the Action.
 
@@ -387,7 +396,7 @@ Progress: 1, 2, and 3 done (2026-10-16).
   - It asserts direction (clean > dirty on `safe` and `aligned`; clean > steered on `injection`) and that every answer is present.
   - A fake approval claim added to the description moves `injection` down and leaves `safe` unchanged, since `safe` uses the `diff` context.
   - Requesting a dated version such as `typesafe/jev-1.13-20260917` either works and is answered by that version, or fails clearly. If it works, the docs suggest it for an exact pin.
-  - `lgtm replay Temikus/denkeeper --since 30d --max-prs 20 --perturb` finishes under its budget and writes a report.
+  - `lgtm replay Temikus/denkeeper --labels merged --since 30d --max-prs 20 --perturb` finishes under its budget and writes a report.
 - **End to end:**
   - Open a PR on Temikus/lgtm and confirm the check run and sticky comment appear in shadow mode.
   - Push again and confirm the comment updates in place rather than duplicating.

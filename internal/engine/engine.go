@@ -57,24 +57,28 @@ type Result struct {
 // Score never returns an error: every failure becomes a needs-human result
 // whose Verdict.Failure says why.
 func Score(ctx context.Context, gh *github.Client, pr prstate.PR, opts Options) *Result {
-	cfg := opts.Config
-	approve, deny := cfg.Thresholds()
-	r := &Result{PR: pr, Mode: cfg.Mode, Model: cfg.Model, ApproveAt: approve, DenyAt: deny}
-	for _, q := range cfg.Rubric {
-		r.Questions = append(r.Questions, QuestionResult{Question: q, Err: errors.New("not asked")})
+	snap, err := prstate.Fetch(ctx, gh, pr, opts.Config.Exclude)
+	if err != nil {
+		r := newResult(pr, opts.Config)
+		if snap != nil {
+			r.Excluded, r.Unseen, r.Partial = snap.Excluded, snap.Unseen, snap.Partial
+		}
+		r.Verdict = verdict.Decide(opts.Config.Policy(), verdict.Input{Failure: err})
+		return r
 	}
+	return ScoreSnapshot(ctx, gh, snap, opts)
+}
+
+// ScoreSnapshot scores a fetched snapshot without changing it, so replay can
+// score edited copies of one PR.
+func ScoreSnapshot(ctx context.Context, gh *github.Client, snap *prstate.Snapshot, opts Options) *Result {
+	cfg := opts.Config
+	r := newResult(snap.PR, cfg)
+	r.Excluded, r.Unseen, r.Partial = snap.Excluded, slices.Clone(snap.Unseen), slices.Clone(snap.Partial)
 	in := verdict.Input{}
 	defer func() { r.Verdict = verdict.Decide(cfg.Policy(), in) }()
 
-	snap, err := prstate.Fetch(ctx, gh, pr, cfg.Exclude)
-	if snap != nil {
-		r.Excluded, r.Unseen, r.Partial = snap.Excluded, snap.Unseen, snap.Partial
-	}
-	if err != nil {
-		in.Failure = err
-		return r
-	}
-	r.Untrusted, r.TrustErr = untrusted(ctx, gh, pr, cfg)
+	r.Untrusted, r.TrustErr = untrusted(ctx, gh, snap.PR, cfg)
 	in.Untrusted = r.Untrusted
 
 	lim := opts.Limits
@@ -99,11 +103,27 @@ func Score(ctx context.Context, gh *github.Client, pr prstate.PR, opts Options) 
 	if snap := cfg.Snapshot(); snap != "" {
 		in.ModelChanged = slices.ContainsFunc(r.Served, func(m string) bool { return m != snap })
 	}
-	for _, q := range r.Questions {
-		in.Values = append(in.Values, verdict.Value{ID: q.ID, Role: q.Role, Value: q.Value, Weight: q.Weight, Err: q.Err})
-	}
+	in.Values = r.Values()
 	in.Consistency = func() (bool, error) { return r.consistent(ctx, opts.Decider, plan.Calls, answers) }
 	return r
+}
+
+func newResult(pr prstate.PR, cfg *config.Config) *Result {
+	approve, deny := cfg.Thresholds()
+	r := &Result{PR: pr, Mode: cfg.Mode, Model: cfg.Model, ApproveAt: approve, DenyAt: deny}
+	for _, q := range cfg.Rubric {
+		r.Questions = append(r.Questions, QuestionResult{Question: q, Err: errors.New("not asked")})
+	}
+	return r
+}
+
+// Values are the normalised answers in the form verdict.Decide takes.
+func (r *Result) Values() []verdict.Value {
+	out := make([]verdict.Value, 0, len(r.Questions))
+	for _, q := range r.Questions {
+		out = append(out, verdict.Value{ID: q.ID, Role: q.Role, Value: q.Value, Weight: q.Weight, Err: q.Err})
+	}
+	return out
 }
 
 // untrusted applies the fork cap: a fork PR is untrusted unless trust_forks

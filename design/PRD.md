@@ -126,6 +126,7 @@ borderline_margin = 0.05
 # Written by `lgtm replay --write`. Enforce mode requires it.
 [calibration]
 model = "typesafe/jev-1.13"
+snapshot = "typesafe/jev-1.13-20260917"
 date = 2026-11-02
 n_labelled = 212
 approve_at = 0.93
@@ -164,6 +165,7 @@ Config rules:
   2. Partial view (see [Large PRs](#large-prs)).
   3. Untrusted author (see [Trust](#trust)).
   4. Borderline approve that fails the consistency check: if the aggregate is within `borderline_margin` (default 0.05) of `approve_at`, LGTM asks every gating or cap `choice` question again with its options in reverse order. If any answer changes, the verdict is capped. Position bias is worst on low-margin cases, so this costs extra calls only where it matters. A noul has no option order, so the default rubric doesn't use this cap. It applies to custom `choice` gates.
+  5. Model version change: the reply names a different dated version than the calibration's `snapshot` (see [Calibration and replay](#calibration-and-replay)). The reason reads "model changed from X to Y since calibration, re-run `lgtm replay`". Enforce mode only; shadow mode notes it in the comment.
 - **Thresholds come from calibration, not defaults.** The defaults of 0.9 and 0.1 are only for shadow mode. Enforce mode needs a `[calibration]` table written by `lgtm replay` (see [Calibration and replay](#calibration-and-replay)) whose `model` matches the configured model. Otherwise config validation fails, unless `allow_uncalibrated = true` is set. Changing the model invalidates the calibration.
 - **Modes:**
   - `shadow` (default): the verdict is reported ("would have: deny") but nothing is gated.
@@ -239,7 +241,7 @@ lgtm replay <owner/repo> [--since 90d] [--max-prs 300] [--budget-usd 2] [--write
   - a reliability table (ECE) per gating question against the PR-level outcome;
   - the size of the needs-human band;
   - a list of disagreements to review by hand. Historical human decisions are noisy, so a disagreement is a case to look into, not automatically an error.
-- **`--write`** stores `[calibration]` in `.github/lgtm.toml` with `model`, `date`, `n_labelled`, `approve_at`, `deny_at`, and the precision it achieved.
+- **`--write`** stores `[calibration]` in `.github/lgtm.toml` with `model`, `snapshot`, `date`, `n_labelled`, `approve_at`, `deny_at`, and the precision it achieved. `snapshot` is the dated version the replies named, such as `typesafe/jev-1.13-20260917`. The provider can move a short name like `typesafe/jev-1.13` to a newer version, and the cutoffs only hold for the version they were fitted on. If replay sees more than one version, it writes nothing.
 - **`--perturb`** runs a robustness suite, using CALM's method (ICLR 2025). It applies controlled edits to a sample of PRs and reports how often the verdict flips, against a baseline of the same PR scored twice. The edits are:
   - a reworded description;
   - a fake authority claim in the description and in a code comment;
@@ -318,7 +320,7 @@ It's one landing page:
 
 ## Milestones
 
-Progress: 1 and 2 done (2026-10-16).
+Progress: 1, 2, and 3 done (2026-10-16).
 
 1. **Bootstrap.**
    - Public repo with an Apache-2.0 license and a `SECURITY.md`.
@@ -332,7 +334,7 @@ Progress: 1 and 2 done (2026-10-16).
    - Dogfood on the lgtm repo itself in shadow mode, with a spend-limited OpenRouter key.
 4. **Replay and calibration:**
    - `lgtm replay` with the history labels, content-free probe, threshold fit, `--write`, and `--perturb`.
-   - Enforce mode requires a calibration.
+   - Enforce mode requires a calibration, and caps at needs-human when the replies name a different version than its `snapshot`.
    - Run it on Temikus/denkeeper and Temikus/butter history, and publish the results in `docs/calibration.md`.
 5. **Website** on getlgtm.dev, with `website.yml` deploying it.
 6. **Release v0.1.0:** GoReleaser binaries, a GHCR image pinned by digest in `action.yml` (the release workflow pushes the image, commits the digest pin, then tags that commit), keyless cosign signing via OIDC, build provenance attestations, a release workflow with `contents: write` and `id-token: write` only, and the `v0` major tag for the Action.
@@ -361,7 +363,7 @@ Progress: 1 and 2 done (2026-10-16).
 - **Default excludes hide lockfiles, `vendor/**`, and minified files from `safe`.** Mitigations: they're listed in `excluded` and in the report; lockfile-aware checks are in the backlog.
 - **Cost abuse.** Anyone can open fork PRs and push repeatedly. Mitigations: concurrency with cancel-in-progress, the batch cap, bounded retries, and a spend-limited key.
 - **Provider outage blocks merges in enforce mode.** This is intended fail-closed behaviour; the human-approval flip is the escape hatch.
-- **Jev's biases on PR data are unmeasured.** The evidence comes from one Jev preprint and from generative LLM judges. Mitigations: calibration is required for enforce mode, the perturbation suite, and re-running replay whenever the model changes.
+- **Jev's biases on PR data are unmeasured.** The evidence comes from one Jev preprint and from generative LLM judges. Mitigations: calibration is required for enforce mode, the perturbation suite, and re-running replay whenever the model changes. Calibration records the dated version, so a silent alias move is caught. A change the provider ships without a new date isn't; only shadow-mode metrics and a scheduled content-free probe would show it.
 - **Automation bias.** Reviewers may skim PRs that LGTM approves. Mitigations: the pass wording, enforce mode alongside required reviewers, and shadow-mode metrics on human review depth.
 
 ## Verification
@@ -378,12 +380,13 @@ Progress: 1 and 2 done (2026-10-16).
   - a Jev client test against an `httptest` server replaying response shapes from the published JSON schema, covering the score criteria array, 429 → retry, a mismatched `model`, and a missing answer ID;
   - context scoping: the `diff` context state contains no title, body, or issue titles;
   - the borderline consistency cap, using a fake provider that changes its `choice` answer when the options are reversed;
-  - calibration: enforce mode without `[calibration]`, or with a different `model`, fails validation; the threshold sweep on synthetic labelled scores picks the expected `approve_at`, and writes nothing when no value reaches the target precision;
+  - calibration: enforce mode without `[calibration]`, or with a different `model`, fails validation; the threshold sweep on synthetic labelled scores picks the expected `approve_at`, and writes nothing when no value reaches the target precision; replies naming a version other than `snapshot` cap the verdict in enforce mode; replay seeing two versions writes nothing;
   - history labelling: a rubber-stamp approval is marked low-confidence, and a revert within 14 days makes the PR negative.
 - **Integration test** (`just test-integration`, needs `LGTM_INTEGRATION=1` and `OPENROUTER_API_KEY`):
   - It runs the default rubric on fixture diffs: a clean, tested change vs. one that commits the canonical fake AWS key `AKIAIOSFODNN7EXAMPLE` and is off-topic, plus one whose description tells the reviewer to approve.
   - It asserts direction (clean > dirty on `safe` and `aligned`; clean > steered on `injection`) and that every answer is present.
   - A fake approval claim added to the description moves `injection` down and leaves `safe` unchanged, since `safe` uses the `diff` context.
+  - Requesting a dated version such as `typesafe/jev-1.13-20260917` either works and is answered by that version, or fails clearly. If it works, the docs suggest it for an exact pin.
   - `lgtm replay Temikus/denkeeper --since 30d --max-prs 20 --perturb` finishes under its budget and writes a report.
 - **End to end:**
   - Open a PR on Temikus/lgtm and confirm the check run and sticky comment appear in shadow mode.

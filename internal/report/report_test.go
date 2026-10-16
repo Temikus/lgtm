@@ -151,6 +151,24 @@ func TestText_StripsControlCharacters(t *testing.T) {
 	}
 }
 
+func TestComment_ModelChanged(t *testing.T) {
+	r := result(config.Enforce, verdict.Result{Verdict: verdict.NeedsHuman, Raw: verdict.Approve, Aggregate: 0.97, Caps: []verdict.CapKind{verdict.ModelChanged}})
+	r.Served = []string{"typesafe/jev-1.13-20261101"}
+	got := Comment(r)
+	for _, want := range []string{"the model version changed since calibration", "typesafe/jev-1.13-20261101"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("comment missing %q:\n%s", want, got)
+		}
+	}
+	b, err := JSON(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `"served": [`) {
+		t.Errorf("JSON missing served:\n%s", b)
+	}
+}
+
 func TestJSON(t *testing.T) {
 	b, err := JSON(result(config.Shadow, verdict.Result{Verdict: verdict.NeedsHuman, Aggregate: 0.42}))
 	if err != nil {

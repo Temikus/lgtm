@@ -35,6 +35,7 @@ const (
 	CapQuestion     CapKind = "cap-question"
 	PartialView     CapKind = "partial-view"
 	UntrustedAuthor CapKind = "untrusted-author"
+	ModelChanged    CapKind = "model-changed"
 	Borderline      CapKind = "borderline-inconsistent"
 )
 
@@ -62,6 +63,9 @@ type Input struct {
 	Failure   error // provider error, timeout, oversized input, empty file set
 	Partial   bool
 	Untrusted bool
+	// ModelChanged means a reply named a dated model version other than
+	// the one the thresholds were calibrated on.
+	ModelChanged bool
 	// Consistency re-asks gating and cap choice questions with options
 	// reversed and reports whether every answer held. It runs only for a
 	// borderline approve that no earlier cap stopped. Nil counts as failed.
@@ -78,7 +82,8 @@ type Result struct {
 }
 
 // Decide applies the aggregate, thresholds, then caps in order: cap
-// question, partial view, untrusted author, borderline consistency. A cap
+// question, partial view, untrusted author, model change, borderline
+// consistency. A cap
 // turns approve into needs-human and leaves deny alone.
 func Decide(p Policy, in Input) Result {
 	if in.Failure != nil {
@@ -102,6 +107,9 @@ func Decide(p Policy, in Input) Result {
 	}
 	if in.Untrusted {
 		r.Caps = append(r.Caps, UntrustedAuthor)
+	}
+	if in.ModelChanged {
+		r.Caps = append(r.Caps, ModelChanged)
 	}
 	if r.Verdict == Approve && len(r.Caps) == 0 && agg < p.ApproveAt+p.Margin && !holds(in.Consistency) {
 		r.Caps = append(r.Caps, Borderline)

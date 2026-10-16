@@ -34,7 +34,7 @@ Each question gives a 0–1 value. The default aggregate is the minimum over gat
 - at or below `deny_at` (default 0.1): **deny**;
 - in between: **needs-human**.
 
-Any of these holds an approve at needs-human: the `injection` question is below `approve_at`, LGTM couldn't see the whole diff, the PR is from a fork by an author without write access, or a borderline score changed when `choice` options were reordered. Provider errors, timeouts, and oversized input also give needs-human. Nothing defaults to approve.
+Any of these holds an approve at needs-human: the `injection` question is below `approve_at`, LGTM couldn't see the whole diff, the PR is from a fork by an author without write access, the replies name a different model version than the one the thresholds were calibrated on, or a borderline score changed when `choice` options were reordered. Provider errors, timeouts, and oversized input also give needs-human. Nothing defaults to approve.
 
 In **enforce** mode, the check run fails on deny and needs-human, and the job exits non-zero. A needs-human check passes once someone with write access approves the scored commit. Enforce mode needs a `[calibration]` table from `lgtm replay --write`, because raw model probabilities aren't calibrated. Use it alongside required reviewers or CODEOWNERS, never instead of them.
 
@@ -64,7 +64,19 @@ lgtm score Temikus/lgtm#1 --post   # also post the sticky comment as you
 lgtm config validate
 ```
 
-`score` reads `GITHUB_TOKEN` (or `gh auth token`) and `OPENROUTER_API_KEY`. `LGTM_BASE_URL` points at a different `https://` endpoint, such as a proxy.
+`score` and `replay` read `GITHUB_TOKEN` (or `gh auth token`) and `OPENROUTER_API_KEY`. `LGTM_BASE_URL` points at a different `https://` endpoint, such as a proxy.
+
+### Calibrating
+
+```sh
+lgtm replay owner/repo --dry-run           # label history and estimate cost; no model calls
+lgtm replay owner/repo --perturb           # score labelled PRs and report
+lgtm replay owner/repo --write             # also store [calibration] in .github/lgtm.toml
+```
+
+Replay labels closed PRs from history. By default a PR approved by someone with write access and then merged is positive, and one closed after a changes-requested review, or reverted within 14 days, is negative. Few repos close PRs after a formal changes-requested review, so strict negatives are rare. `--labels maintainer` adds Prow's `lgtm` label as an approval and counts a PR closed unmerged by someone other than its author (directly, or through a bot after their `/close`) as negative; stale closures and authors closing their own PRs stay unlabelled. It works on repos like kubernetes. For a repo with one maintainer and no reviews, `--labels merged` counts merged PRs as positive and closed ones as negative, skipping bots. These labels are weaker, because they record what shipped rather than what a reviewer judged.
+
+It then scores the labelled PRs and picks the lowest `approve_at`, and the highest `deny_at`, that reach `--target-precision` (default 0.95). The fit needs at least 5 positive and 5 negative PRs. `--write` stores the result, with the model version the replies named, and changes nothing else in the file. It writes nothing if the fit fails or if the replies named more than one version. `--budget-usd` (default 2) caps the run: before each model call, replay reserves that request's estimated cost and stops if the total could pass the budget. `--dry-run` shows the estimate first.
 
 ## Data
 

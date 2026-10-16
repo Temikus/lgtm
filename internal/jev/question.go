@@ -47,8 +47,25 @@ var ErrTooLarge = errors.New("decision input exceeds the request token limit")
 type Question struct {
 	Type         QuestionType
 	Instructions string
-	Choices      map[string]string // choice options; for noul, optional "true"/"false" definitions
-	Levels       []string          // score levels, worst to best
+	Choices      []Option // choice options in the order sent; for noul, optional "true"/"false"
+	Levels       []string // score levels in order
+}
+
+// Option is a named choice and the definition bound to it. The model follows
+// the name over the definition, so the two must never disagree.
+type Option struct {
+	Name       string
+	Definition string
+}
+
+// Has reports whether name is one of q's options.
+func (q Question) Has(name string) bool {
+	for _, o := range q.Choices {
+		if o.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 // Answer is the model's answer to one Question. Probabilities are keyed by
@@ -132,13 +149,24 @@ func validateShape(id string, q Question) error {
 		if len(q.Levels) > 0 {
 			return fmt.Errorf("question %q: noul questions take no levels", id)
 		}
-		for k := range q.Choices {
-			if k != "true" && k != "false" {
-				return fmt.Errorf("question %q: noul criteria keys must be \"true\" or \"false\", got %q", id, k)
+		for _, o := range q.Choices {
+			if o.Name != "true" && o.Name != "false" {
+				return fmt.Errorf("question %q: noul criteria keys must be \"true\" or \"false\", got %q", id, o.Name)
 			}
 		}
 	default:
 		return fmt.Errorf("question %q: unknown type %q (want choice, noul, or score)", id, q.Type)
+	}
+	return validateUniqueOptions(id, q.Choices)
+}
+
+func validateUniqueOptions(id string, opts []Option) error {
+	seen := make(map[string]bool, len(opts))
+	for _, o := range opts {
+		if seen[o.Name] {
+			return fmt.Errorf("question %q: duplicate option %q", id, o.Name)
+		}
+		seen[o.Name] = true
 	}
 	return nil
 }

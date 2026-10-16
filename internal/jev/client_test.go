@@ -32,7 +32,7 @@ const fullResponse = `{
 func fullQuestions() map[string]Question {
 	return map[string]Question{
 		"safe": {Type: Noul, Instructions: "Is it safe?"},
-		"risk": {Type: Choice, Instructions: "Blast radius?", Choices: map[string]string{"contained": "one module", "wide": "many modules"}},
+		"risk": {Type: Choice, Instructions: "Blast radius?", Choices: []Option{{"contained", "one module"}, {"wide", "many modules"}}},
 		"size": {Type: Score, Instructions: "How big?", Levels: []string{"small", "medium", "large"}},
 		"arr":  {Type: Score, Instructions: "How big?", Levels: []string{"small", "medium", "large"}},
 	}
@@ -228,6 +228,17 @@ func TestDecide_RefusesOversizedInput(t *testing.T) {
 	}
 	if calls.Load() != 0 {
 		t.Error("oversized input must not reach the provider")
+	}
+}
+
+func TestEncode_KeepsOptionOrder(t *testing.T) {
+	q := Question{Type: Choice, Instructions: "x", Choices: []Option{{"wide", "w"}, {"contained", "c"}}}
+	b, err := json.Marshal(encodeRequest(Request{Questions: map[string]Question{"risk": q}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `"criteria":{"wide":"w","contained":"c"}`) {
+		t.Errorf("options reordered: %s", b)
 	}
 }
 

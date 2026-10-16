@@ -28,7 +28,7 @@ func TestDecide_Live(t *testing.T) {
 		State: map[string]any{"message": "I was charged twice for my subscription."},
 		Questions: map[string]Question{
 			"refund": {Type: Noul, Instructions: "Is `message` asking for money back?"},
-			"team":   {Type: Choice, Instructions: "Which team should handle `message`?", Choices: map[string]string{"billing": "Charges and refunds", "technical": "Bugs and outages"}},
+			"team":   {Type: Choice, Instructions: "Which team should handle `message`?", Choices: []Option{{"billing", "Charges and refunds"}, {"technical", "Bugs and outages"}}},
 			"size":   {Type: Score, Instructions: "How urgent is `message`?", Levels: []string{"low", "medium", "high"}},
 		},
 	})

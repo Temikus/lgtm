@@ -14,11 +14,12 @@ func TestValidateQuestions(t *testing.T) {
 		"empty id":         {qs: map[string]Question{" ": {Type: Noul, Instructions: "x"}}, wantErr: "id"},
 		"no instructions":  {qs: map[string]Question{"a": {Type: Noul}}, wantErr: "instructions"},
 		"unknown type":     {qs: map[string]Question{"a": {Type: "maybe", Instructions: "x"}}, wantErr: "unknown type"},
-		"one choice":       {qs: map[string]Question{"a": {Type: Choice, Instructions: "x", Choices: map[string]string{"a": "a"}}}, wantErr: "2-255"},
+		"one choice":       {qs: map[string]Question{"a": {Type: Choice, Instructions: "x", Choices: []Option{{"a", "a"}}}}, wantErr: "2-255"},
 		"one level":        {qs: map[string]Question{"a": {Type: Score, Instructions: "x", Levels: []string{"a"}}}, wantErr: "2-10"},
-		"noul bad key":     {qs: map[string]Question{"a": {Type: Noul, Instructions: "x", Choices: map[string]string{"yes": "y"}}}, wantErr: "true"},
+		"noul bad key":     {qs: map[string]Question{"a": {Type: Noul, Instructions: "x", Choices: []Option{{"yes", "y"}}}}, wantErr: "true"},
 		"choice levels":    {qs: map[string]Question{"a": {Type: Choice, Instructions: "x", Levels: []string{"a", "b"}}}, wantErr: "not levels"},
-		"ok noul":          {qs: map[string]Question{"a": {Type: Noul, Instructions: "x", Choices: map[string]string{"true": "t", "false": "f"}}}},
+		"dup option":       {qs: map[string]Question{"a": {Type: Choice, Instructions: "x", Choices: []Option{{"a", "1"}, {"a", "2"}}}}, wantErr: "duplicate"},
+		"ok noul":          {qs: map[string]Question{"a": {Type: Noul, Instructions: "x", Choices: []Option{{"true", "t"}, {"false", "f"}}}}},
 		"ok score min max": {qs: map[string]Question{"a": {Type: Score, Instructions: "x", Levels: []string{"a", "b"}}}},
 	}
 	for name, tt := range tests {

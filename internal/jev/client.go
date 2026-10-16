@@ -81,14 +81,14 @@ type Client struct {
 	sleep   func(context.Context, time.Duration) error
 }
 
-// Option configures a Client.
-type Option func(*Client)
+// ClientOption configures a Client.
+type ClientOption func(*Client)
 
 // WithHTTPClient replaces the default HTTP client.
-func WithHTTPClient(h *http.Client) Option { return func(c *Client) { c.http = h } }
+func WithHTTPClient(h *http.Client) ClientOption { return func(c *Client) { c.http = h } }
 
 // NewClient returns a Client for baseURL (see BaseURL).
-func NewClient(baseURL, apiKey string, opts ...Option) *Client {
+func NewClient(baseURL, apiKey string, opts ...ClientOption) *Client {
 	c := &Client{
 		baseURL: strings.TrimRight(baseURL, "/"),
 		apiKey:  apiKey,
@@ -241,11 +241,38 @@ func encodeRequest(req Request) wireRequest {
 		case q.Type == Score && len(q.Levels) > 0:
 			wq.Criteria = q.Levels
 		case q.Type != Score && len(q.Choices) > 0:
-			wq.Criteria = q.Choices
+			wq.Criteria = orderedOptions(q.Choices)
 		}
 		out.Questions[id] = wq
 	}
 	return out
+}
+
+// orderedOptions marshals as a JSON object in slice order. encoding/json
+// sorts map keys, which would defeat the option-reversal consistency check.
+type orderedOptions []Option
+
+func (o orderedOptions) MarshalJSON() ([]byte, error) {
+	var b bytes.Buffer
+	b.WriteByte('{')
+	for i, opt := range o {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		k, err := json.Marshal(opt.Name)
+		if err != nil {
+			return nil, err
+		}
+		v, err := json.Marshal(opt.Definition)
+		if err != nil {
+			return nil, err
+		}
+		b.Write(k)
+		b.WriteByte(':')
+		b.Write(v)
+	}
+	b.WriteByte('}')
+	return b.Bytes(), nil
 }
 
 type wireResponse struct {
@@ -322,7 +349,7 @@ func (a wireAnswer) decode(q Question) (Answer, error) {
 		}
 		out.Noul = *a.Noul
 	case Choice:
-		if _, ok := q.Choices[a.Choice]; !ok {
+		if !q.Has(a.Choice) {
 			return Answer{}, fmt.Errorf("choice %q is not one of the options", a.Choice)
 		}
 	case Score:

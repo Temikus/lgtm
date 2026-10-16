@@ -29,6 +29,9 @@ type fakePR struct {
 	reviewComment int
 	mergeSHA      string
 	reviews       []map[string]any
+	labels        []string
+	closedBy      string
+	comments      []map[string]any
 }
 
 func (p fakePR) json() map[string]any {
@@ -45,6 +48,11 @@ func (p fakePR) json() map[string]any {
 		"base": map[string]any{"sha": "base", "ref": "main", "repo": map[string]any{"full_name": "o/r"}},
 		"head": map[string]any{"sha": fmt.Sprintf("head%d", p.n), "ref": "b", "repo": map[string]any{"full_name": "o/r"}},
 	}
+	var labels []any
+	for _, l := range p.labels {
+		labels = append(labels, map[string]any{"name": l})
+	}
+	m["labels"] = labels
 	if p.merged {
 		m["merged_at"] = ts(p.closed)
 		m["merged_by"] = map[string]any{"login": p.mergedBy}
@@ -68,6 +76,16 @@ func serveHistory(t *testing.T, prs []fakePR, writers ...string) *ghtest.Server 
 			reviews = []map[string]any{}
 		}
 		gh.Mux.HandleFunc(fmt.Sprintf("GET /repos/o/r/pulls/%d/reviews", p.n), ghtest.Reply(200, reviews))
+		events := []any{map[string]any{"event": "labeled", "actor": map[string]any{"login": "someone"}}}
+		if p.closedBy != "" {
+			events = append(events, map[string]any{"event": "closed", "actor": map[string]any{"login": p.closedBy}})
+		}
+		gh.Mux.HandleFunc(fmt.Sprintf("GET /repos/o/r/issues/%d/events", p.n), ghtest.Reply(200, events))
+		comments := p.comments
+		if comments == nil {
+			comments = []map[string]any{}
+		}
+		gh.Mux.HandleFunc(fmt.Sprintf("GET /repos/o/r/issues/%d/comments", p.n), ghtest.Reply(200, comments))
 	}
 	gh.Mux.HandleFunc("GET /repos/o/r/pulls", ghtest.Reply(200, list))
 	gh.Mux.HandleFunc("GET /repos/o/r/collaborators/{user}/permission", func(w http.ResponseWriter, r *http.Request) {
@@ -231,5 +249,47 @@ func TestHistory_StrictWithoutPushAccess(t *testing.T) {
 	s := byNumber(t, got)
 	if s[1].Label != Positive || s[2].Label != Unlabelled {
 		t.Errorf("labels = %q, %q", s[1].Label, s[2].Label)
+	}
+}
+
+func comment(login, body string) map[string]any {
+	return map[string]any{"user": map[string]any{"login": login}, "body": body}
+}
+
+// Maintainer labels read Prow's signals as well as GitHub reviews.
+func TestHistory_Maintainer(t *testing.T) {
+	prs := []fakePR{
+		{n: 1, title: "prow merged", author: "ann", merged: true, closed: day, labels: []string{"lgtm", "approved"}},
+		{n: 2, title: "closed by maintainer", author: "ann", closed: day, closedBy: "dims"},
+		{n: 3, title: "closed by author", author: "ann", closed: day, closedBy: "ann"},
+		{n: 4, title: "prow /close", author: "ann", closed: day, closedBy: "k8s-ci-robot", comments: []map[string]any{comment("ann", "fixed"), comment("kannon", "Not needed.\n/close")}},
+		{n: 5, title: "rotten", author: "ann", closed: day, closedBy: "k8s-ci-robot", labels: []string{"lifecycle/rotten"}, comments: []map[string]any{comment("kannon", "/close")}},
+		{n: 6, title: "robot /close", author: "ann", closed: day, closedBy: "k8s-ci-robot", comments: []map[string]any{comment("k8s-triage-robot", "Closing.\n/close")}},
+		{n: 7, title: "author /close", author: "ann", closed: day, closedBy: "k8s-ci-robot", comments: []map[string]any{comment("ann", "/close")}},
+		{n: 8, title: "merged without lgtm", author: "ann", merged: true, closed: day},
+	}
+	gh := serveHistory(t, prs, "ann")
+
+	got, err := History(context.Background(), gh.Client, "o", "r", HistoryOptions{Since: t0, Mode: Maintainer})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := byNumber(t, got)
+	want := map[int]Label{1: Positive, 2: Negative, 3: Unlabelled, 4: Negative, 5: Unlabelled, 6: Unlabelled, 7: Unlabelled, 8: Unlabelled}
+	for n, w := range want {
+		if s[n].Label != w {
+			t.Errorf("#%d %s = %q (%s), want %q", n, s[n].PR.Title, s[n].Label, s[n].Reason, w)
+		}
+	}
+
+	// Strict ignores both Prow signals.
+	got, err = History(context.Background(), gh.Client, "o", "r", HistoryOptions{Since: t0, Mode: Strict})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, smp := range got {
+		if smp.Label != Unlabelled {
+			t.Errorf("strict #%d = %q", smp.PR.Number, smp.Label)
+		}
 	}
 }

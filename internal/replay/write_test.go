@@ -80,31 +80,81 @@ func TestSetCalibration_RefusesWhatItCannotEdit(t *testing.T) {
 }
 
 type costDecider struct {
-	calls int
-	cost  float64
+	calls  int
+	cost   float64
+	tokens int
 }
 
 func (c *costDecider) Decide(context.Context, jev.Request) (*jev.Response, error) {
 	c.calls++
-	return &jev.Response{CostUSD: c.cost}, nil
+	return &jev.Response{CostUSD: c.cost, Usage: jev.Usage{InputTokens: c.tokens}}, nil
+}
+
+func sized(bytes int) jev.Request {
+	return jev.Request{State: strings.Repeat("x", bytes-2)} // JSON adds two quotes
 }
 
 func TestBudget_StopsBeforeOverspend(t *testing.T) {
-	d := &costDecider{cost: 0.3}
+	// Each call is 300k tokens and the provider bills $0.30, $1 per million.
+	d := &costDecider{cost: 0.3, tokens: 300_000}
 	b := &Budget{Decider: d, LimitUSD: 1}
 	var err error
 	for range 10 {
-		if _, err = b.Decide(context.Background(), jev.Request{}); err != nil {
+		if _, err = b.Decide(context.Background(), sized(900_000)); err != nil {
 			break
 		}
 	}
 	if !errors.Is(err, ErrBudget) {
 		t.Fatalf("err = %v, want ErrBudget", err)
 	}
-	// 3 calls spend 0.9; a 4th at the 0.3 average would pass 1.
+	// 3 calls spend 0.9; a 4th at the learned price would pass 1.
 	if d.calls != 3 || b.Spent() > 1 {
 		t.Errorf("calls = %d, spent = %v", d.calls, b.Spent())
 	}
+}
+
+// The first call has no history, so the fallback price must stop a request
+// that is too big for the budget before it is sent.
+func TestBudget_FirstCallIsEstimated(t *testing.T) {
+	d := &costDecider{cost: 0.001}
+	b := &Budget{Decider: d, LimitUSD: 0.01}
+	// 3 MB is about 1M tokens, $0.10 at the fallback price.
+	if _, err := b.Decide(context.Background(), sized(3_000_000)); !errors.Is(err, ErrBudget) || d.calls != 0 {
+		t.Errorf("err = %v after %d calls, want ErrBudget before any call", err, d.calls)
+	}
+	if _, err := b.Decide(context.Background(), sized(3_000)); err != nil || d.calls != 1 {
+		t.Errorf("a small call should go through: %v", err)
+	}
+}
+
+// Calls in flight hold their reservation, so parallel calls can't all slip
+// under the limit.
+func TestBudget_ReservesInFlight(t *testing.T) {
+	release := make(chan struct{})
+	d := &blockingDecider{started: make(chan struct{}), release: release}
+	b := &Budget{Decider: d, LimitUSD: 0.15}
+	req := sized(3_000_000) // ~$0.10 each at the fallback price
+	done := make(chan error)
+	go func() { _, err := b.Decide(context.Background(), req); done <- err }()
+	<-d.started
+	if _, err := b.Decide(context.Background(), req); !errors.Is(err, ErrBudget) {
+		t.Errorf("second call while the first is in flight: err = %v, want ErrBudget", err)
+	}
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
+type blockingDecider struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (d *blockingDecider) Decide(context.Context, jev.Request) (*jev.Response, error) {
+	d.started <- struct{}{}
+	<-d.release
+	return &jev.Response{CostUSD: 0.1}, nil
 }
 
 func TestBudget_PricesTokensWithoutReportedCost(t *testing.T) {

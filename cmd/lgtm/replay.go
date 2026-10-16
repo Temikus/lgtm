@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/go-github/v92/github"
 	"github.com/spf13/cobra"
 
 	"github.com/Temikus/lgtm/internal/config"
@@ -27,10 +28,14 @@ func newReplayCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "replay <owner/repo>",
 		Short: "Score past PRs, compare with human decisions, and fit thresholds",
-		Long: "Replay labels closed PRs from their reviews (or, with --labels merged, from\n" +
-			"merges, for repos with one maintainer), scores the labelled ones, and fits\n" +
+		Long: "Replay labels closed PRs from history, scores the labelled ones, and fits\n" +
 			"approve_at and deny_at. With --write it stores them in [calibration] in\n" +
-			"--config, which enforce mode requires.",
+			"--config, which enforce mode requires.\n\n" +
+			"Labels: strict uses GitHub reviews; maintainer also counts Prow's lgtm label\n" +
+			"and PRs closed by someone other than their author, for repos like kubernetes;\n" +
+			"merged counts merges, for repos with one maintainer.\n\n" +
+			"Run --dry-run first: it labels history and estimates the model cost without\n" +
+			"calling the model. --budget-usd caps the real run.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error { return o.run(cmd, args[0]) },
 	}
@@ -39,11 +44,11 @@ func newReplayCmd() *cobra.Command {
 	f.IntVar(&o.maxPRs, "max-prs", 300, "most PRs to read")
 	f.Float64Var(&o.budget, "budget-usd", 2, "stop calling the model before spend passes this")
 	f.Float64Var(&o.target, "target-precision", 0.95, "precision approve and deny must reach")
-	f.StringVar(&o.labels, "labels", string(replay.Strict), "strict (reviews) or merged (merges, for one-maintainer repos)")
+	f.StringVar(&o.labels, "labels", string(replay.Strict), "strict, maintainer, or merged (see above)")
 	f.BoolVar(&o.write, "write", false, "store the fitted thresholds in [calibration]")
 	f.BoolVar(&o.perturb, "perturb", false, "run the robustness suite on PRs near approve_at")
 	f.IntVar(&o.sample, "perturb-sample", 10, "PRs to perturb")
-	f.BoolVar(&o.dryRun, "dry-run", false, "label history and stop, without calling the model")
+	f.BoolVar(&o.dryRun, "dry-run", false, "label history and estimate the cost, without calling the model")
 	f.StringVar(&o.cfgPath, "config", config.Path, "config file to read and, with --write, update")
 	return cmd
 }
@@ -68,12 +73,7 @@ func (o replayOpts) run(cmd *cobra.Command, ref string) error {
 	}
 	hist := replay.HistoryOptions{Since: time.Now().Add(-age), MaxPRs: o.maxPRs, Mode: mode}
 	if o.dryRun {
-		samples, err := replay.History(ctx, gh, owner, repo, hist)
-		if err != nil {
-			return err
-		}
-		_, err = fmt.Fprint(cmd.OutOrStdout(), replay.LabelText(owner+"/"+repo, mode, samples))
-		return err
+		return o.dry(cmd, cfg, gh, owner, repo, hist)
 	}
 	d, err := decider(cfg, "")
 	if err != nil {
@@ -93,6 +93,20 @@ func (o replayOpts) run(cmd *cobra.Command, ref string) error {
 		return err
 	}
 	return o.save(cmd, rep)
+}
+
+func (o replayOpts) dry(cmd *cobra.Command, cfg *config.Config, gh *github.Client, owner, repo string, hist replay.HistoryOptions) error {
+	ctx := cmd.Context()
+	samples, err := replay.History(ctx, gh, owner, repo, hist)
+	if err != nil {
+		return err
+	}
+	est, err := replay.EstimateCost(ctx, gh, cfg, samples, o.perturb, o.sample)
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprint(cmd.OutOrStdout(), replay.LabelText(owner+"/"+repo, hist.Mode, samples), "\n", est.Text(o.budget))
+	return err
 }
 
 // save stores the calibration when --write asks for it.
@@ -116,8 +130,8 @@ func replayFlags(since, labels string, target float64) (time.Duration, replay.La
 		return 0, "", err
 	}
 	mode := replay.LabelMode(labels)
-	if mode != replay.Strict && mode != replay.Merged {
-		return 0, "", fmt.Errorf("--labels must be strict or merged, got %q", labels)
+	if mode != replay.Strict && mode != replay.Maintainer && mode != replay.Merged {
+		return 0, "", fmt.Errorf("--labels must be strict, maintainer, or merged, got %q", labels)
 	}
 	if target <= 0 || target >= 1 {
 		return 0, "", fmt.Errorf("--target-precision must be between 0 and 1, got %v", target)

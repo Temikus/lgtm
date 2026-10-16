@@ -42,8 +42,11 @@ func (r *Report) textHeader(b *textWriter) {
 	if r.BudgetHit {
 		b.w("Stopped at the budget: the figures cover the PRs scored before it.")
 	}
-	if r.Labels == Merged {
+	switch r.Labels {
+	case Merged:
 		b.w("Labels come from merges, not reviews, so they say what shipped, not what a reviewer judged.")
+	case Maintainer:
+		b.w("Negative labels include PRs closed by a maintainer for reasons other than quality, such as duplicates.")
 	}
 }
 
@@ -163,6 +166,9 @@ func LabelText(repo string, mode LabelMode, ss []Sample) string {
 		repo, mode, len(ss), pos, neg, low, len(ss)-pos-neg-low)
 	if pos < minSupport || neg < minSupport {
 		b.w("A fit needs at least %d positive and %d negative PRs, so replay would write nothing.", minSupport, minSupport)
+		if mode == Strict {
+			b.w("Try a longer --since, or --labels maintainer if the repo approves outside GitHub reviews (such as Prow) or closes PRs it rejects.")
+		}
 	}
 	for _, s := range ss {
 		if s.Label == Unlabelled {

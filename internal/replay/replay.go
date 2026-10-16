@@ -84,6 +84,7 @@ func Run(ctx context.Context, gh *github.Client, o Options) (*Report, error) {
 	eo := engine.Options{Config: cfg, Decider: budget}
 
 	rep := &Report{Repo: o.Owner + "/" + o.Repo, Labels: o.History.Mode, Model: cfg.Model, CurrentPol: o.Config.Policy()}
+	o.progress("budget $%.2f: model calls stop before spend passes it", o.BudgetUSD)
 	o.progress("reading closed PRs since %s", o.History.Since.Format(time.DateOnly))
 	samples, err := History(ctx, gh, o.Owner, o.Repo, o.History)
 	if err != nil {

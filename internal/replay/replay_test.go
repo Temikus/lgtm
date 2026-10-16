@@ -146,3 +146,30 @@ func TestRun_StopsAtBudget(t *testing.T) {
 		t.Error("text should say the budget stopped the run")
 	}
 }
+
+func TestEstimateCost(t *testing.T) {
+	gh := replayServer(t)
+	o := runOpts(t, nil)
+	ss, err := History(context.Background(), gh.Client, "o", "r", o.History)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, err := EstimateCost(context.Background(), gh.Client, o.Config, ss, false, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 12 PRs at 2 calls each (full and diff context), plus a 2-PR probe.
+	if plain.PRs != 12 || plain.Calls != 28 || plain.Tokens <= 0 || plain.USD <= 0 {
+		t.Errorf("estimate = %+v", plain)
+	}
+	withPerturb, err := EstimateCost(context.Background(), gh.Client, o.Config, ss, true, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if withPerturb.Calls != plain.Calls+perturbScorings*10*2 {
+		t.Errorf("with perturb = %+v", withPerturb)
+	}
+	if !strings.Contains(withPerturb.Text(0.000001), "more than --budget-usd") {
+		t.Error("text should warn when the estimate passes the budget")
+	}
+}

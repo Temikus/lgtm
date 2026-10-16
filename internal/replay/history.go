@@ -8,8 +8,10 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/go-github/v92/github"
@@ -29,7 +31,15 @@ const (
 	// writer is positive, closed unmerged is negative, and bot PRs are
 	// skipped. The labels are weaker than Strict's.
 	Merged LabelMode = "merged"
+	// Maintainer adds two signals to Strict for repos that don't review
+	// through GitHub, such as Prow repos: merged with an lgtm label is
+	// positive, and closed unmerged by someone other than the author
+	// (directly, or by a bot after their /close) is negative.
+	Maintainer LabelMode = "maintainer"
 )
+
+// historyWorkers bounds concurrent GitHub reads while labelling.
+const historyWorkers = 8
 
 // Label is the human outcome for a PR.
 type Label string
@@ -73,25 +83,55 @@ func History(ctx context.Context, gh *github.Client, owner, repo string, opts Hi
 	reverted := findReverts(owner, repo, closed)
 	h := &historian{gh: gh, owner: owner, repo: repo, mode: opts.Mode, writers: map[string]bool{}}
 
-	var out []Sample
+	var todo []*github.PullRequest
 	for _, p := range closed {
-		if opts.MaxPRs > 0 && len(out) >= opts.MaxPRs {
+		if opts.MaxPRs > 0 && len(todo) >= opts.MaxPRs {
 			break
 		}
-		if opts.Mode == Merged && isBot(p.GetUser()) {
-			continue
+		if opts.Mode != Merged || !isBot(p.GetUser()) {
+			todo = append(todo, p)
 		}
-		full, _, err := gh.PullRequests.Get(ctx, owner, repo, p.GetNumber())
-		if err != nil {
-			return nil, fmt.Errorf("reading #%d: %w", p.GetNumber(), err)
-		}
-		s, err := h.label(ctx, full, reverted[p.GetNumber()])
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, s)
 	}
-	return out, nil
+	out := make([]Sample, len(todo))
+	err = parallel(ctx, len(todo), historyWorkers, func(i int) error {
+		n := todo[i].GetNumber()
+		full, _, err := gh.PullRequests.Get(ctx, owner, repo, n)
+		if err != nil {
+			return fmt.Errorf("reading #%d: %w", n, err)
+		}
+		out[i], err = h.label(ctx, full, reverted[n])
+		return err
+	})
+	return out, err
+}
+
+// parallel runs f(0..n-1) on up to workers goroutines and returns the first
+// error. Work not yet started stops after an error.
+func parallel(ctx context.Context, n, workers int, f func(int) error) error {
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	sem := make(chan struct{}, workers)
+	var wg sync.WaitGroup
+	for i := range n {
+		select {
+		case sem <- struct{}{}:
+		case <-ctx.Done():
+		}
+		if ctx.Err() != nil {
+			break
+		}
+		wg.Go(func() {
+			defer func() { <-sem }()
+			if err := f(i); err != nil {
+				cancel(err)
+			}
+		})
+	}
+	wg.Wait()
+	if err := context.Cause(ctx); err != nil && !errors.Is(err, context.Canceled) {
+		return err
+	}
+	return ctx.Err()
 }
 
 // listClosed pages by update time, which is never before close time, so it
@@ -173,6 +213,7 @@ type historian struct {
 	gh          *github.Client
 	owner, repo string
 	mode        LabelMode
+	mu          sync.Mutex
 	writers     map[string]bool
 	noPermAPI   bool
 }
@@ -212,6 +253,10 @@ func (h *historian) labelStrict(ctx context.Context, p *github.PullRequest, s Sa
 	if !p.GetMerged() {
 		if changes != "" {
 			s.Label, s.Reason = Negative, "closed after "+changes+" requested changes"
+			return s, nil
+		}
+		if h.mode == Maintainer {
+			return h.labelClosed(ctx, p, s)
 		}
 		return s, nil
 	}
@@ -229,7 +274,66 @@ func (h *historian) labelStrict(ctx context.Context, p *github.PullRequest, s Sa
 		}
 		return s, nil
 	}
+	if h.mode == Maintainer && hasLabel(p, "lgtm") {
+		s.Label, s.Reason = Positive, "merged with the lgtm label"
+	}
 	return s, nil
+}
+
+var closeCommand = regexp.MustCompile(`(?m)^/close\s*$`)
+
+// labelClosed makes a PR negative when someone other than its author closed
+// it: directly, or through a bot (Prow) after commenting /close. Stale
+// closures and authors closing their own PRs stay unlabelled.
+func (h *historian) labelClosed(ctx context.Context, p *github.PullRequest, s Sample) (Sample, error) {
+	if hasLabelPrefix(p, "lifecycle/") {
+		s.Reason = "closed as stale"
+		return s, nil
+	}
+	author := p.GetUser().GetLogin()
+	closer, err := h.closer(ctx, p.GetNumber())
+	switch {
+	case err != nil || closer == nil:
+		return s, err
+	case closer.GetLogin() == author:
+		s.Reason = "closed by its author"
+		return s, nil
+	case !isBot(closer):
+		s.Label, s.Reason = Negative, "closed by "+closer.GetLogin()
+		return s, nil
+	}
+	for c, err := range h.gh.Issues.ListCommentsIter(ctx, h.owner, h.repo, p.GetNumber(), &github.IssueListCommentsOptions{ListOptions: github.ListOptions{PerPage: 100}}) {
+		if err != nil {
+			return s, fmt.Errorf("listing comments on #%d: %w", p.GetNumber(), err)
+		}
+		by := c.GetUser()
+		if by.GetLogin() != author && !isBot(by) && closeCommand.MatchString(c.GetBody()) {
+			s.Label, s.Reason = Negative, "closed after "+by.GetLogin()+" commented /close"
+		}
+	}
+	return s, nil
+}
+
+// closer is who last closed the PR, or nil if no event says.
+func (h *historian) closer(ctx context.Context, n int) (*github.User, error) {
+	var who *github.User
+	for e, err := range h.gh.Issues.ListIssueEventsIter(ctx, h.owner, h.repo, n, &github.ListOptions{PerPage: 100}) {
+		if err != nil {
+			return nil, fmt.Errorf("listing events on #%d: %w", n, err)
+		}
+		if e.GetEvent() == "closed" {
+			who = e.GetActor()
+		}
+	}
+	return who, nil
+}
+
+func hasLabel(p *github.PullRequest, name string) bool {
+	return slices.ContainsFunc(p.Labels, func(l *github.Label) bool { return l.GetName() == name })
+}
+
+func hasLabelPrefix(p *github.PullRequest, prefix string) bool {
+	return slices.ContainsFunc(p.Labels, func(l *github.Label) bool { return strings.HasPrefix(l.GetName(), prefix) })
 }
 
 // reviews returns each writer's latest approving or changes-requested
@@ -297,14 +401,20 @@ func (h *historian) writer(ctx context.Context, login, assoc string) (bool, erro
 	if login == "" {
 		return false, nil
 	}
-	if h.noPermAPI {
+	h.mu.Lock()
+	ok, seen := h.writers[login]
+	noPermAPI := h.noPermAPI
+	h.mu.Unlock()
+	switch {
+	case noPermAPI:
 		return writerAssociations[assoc], nil
-	}
-	if ok, seen := h.writers[login]; seen {
+	case seen:
 		return ok, nil
 	}
 	ok, err := trust.AuthorTrusted(ctx, h.gh, h.owner, h.repo, login)
 	var ge *github.ErrorResponse
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	if errors.As(err, &ge) && ge.Response.StatusCode == http.StatusForbidden {
 		h.noPermAPI = true
 		return writerAssociations[assoc], nil
@@ -318,6 +428,9 @@ func (h *historian) writer(ctx context.Context, login, assoc string) (bool, erro
 
 var writerAssociations = map[string]bool{"OWNER": true, "MEMBER": true, "COLLABORATOR": true}
 
+// isBot also catches robot accounts that are plain users, such as
+// k8s-triage-robot, whose /close comments close stale PRs.
 func isBot(u *github.User) bool {
-	return u.GetType() == "Bot" || strings.HasSuffix(u.GetLogin(), "[bot]")
+	l := strings.ToLower(u.GetLogin())
+	return u.GetType() == "Bot" || strings.HasSuffix(l, "[bot]") || strings.HasSuffix(l, "-bot") || strings.HasSuffix(l, "-robot")
 }

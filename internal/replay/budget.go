@@ -2,6 +2,7 @@ package replay
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sync"
 
@@ -16,25 +17,29 @@ var ErrBudget = errors.New("replay budget reached")
 // rather than late.
 const fallbackUSDPerMTok = 0.10
 
-// Budget stops calls before spend passes LimitUSD. Each call reserves the
-// average cost so far, so concurrent calls can't all slip under the limit.
+// Budget stops calls before spend passes LimitUSD. Before each call it
+// reserves that request's estimated cost: its size in tokens at the dearest
+// price seen so far (or the fallback price), and never less than the average
+// call so far. So neither the first call nor calls running side by side can
+// take spend past the limit.
 type Budget struct {
 	Decider  jev.Decider
 	LimitUSD float64
 
 	mu       sync.Mutex
 	spent    float64
-	reserved float64
+	tokens   int
 	calls    int
+	reserved float64
 }
 
 var _ jev.Decider = (*Budget)(nil)
 
 func (b *Budget) Decide(ctx context.Context, req jev.Request) (*jev.Response, error) {
 	b.mu.Lock()
-	est := 0.0
+	est := float64(requestTokens(req)) * b.price()
 	if b.calls > 0 {
-		est = b.spent / float64(b.calls)
+		est = max(est, b.spent/float64(b.calls))
 	}
 	if b.spent+b.reserved+est > b.LimitUSD {
 		b.mu.Unlock()
@@ -51,8 +56,18 @@ func (b *Budget) Decide(ctx context.Context, req jev.Request) (*jev.Response, er
 	b.calls++
 	if resp != nil {
 		b.spent += cost(resp)
+		b.tokens += resp.Usage.InputTokens
 	}
 	return resp, err
+}
+
+// price is USD per input token. Callers hold mu.
+func (b *Budget) price() float64 {
+	p := fallbackUSDPerMTok / 1e6
+	if b.tokens > 0 {
+		p = max(p, b.spent/float64(b.tokens))
+	}
+	return p
 }
 
 // Spent is the cost of the calls made so far.
@@ -67,4 +82,23 @@ func cost(r *jev.Response) float64 {
 		return r.CostUSD
 	}
 	return float64(r.Usage.InputTokens) * fallbackUSDPerMTok / 1e6
+}
+
+// requestTokens estimates a request's input tokens at 3 bytes per token,
+// the same conservative rate the client uses for its size limit.
+func requestTokens(req jev.Request) int {
+	n := 0
+	if b, err := json.Marshal(req.State); err == nil {
+		n += len(b)
+	}
+	for id, q := range req.Questions {
+		n += len(id) + len(q.Instructions)
+		for _, o := range q.Choices {
+			n += len(o.Name) + len(o.Definition)
+		}
+		for _, l := range q.Levels {
+			n += len(l)
+		}
+	}
+	return (n + 2) / 3
 }

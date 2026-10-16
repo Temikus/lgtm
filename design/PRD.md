@@ -234,7 +234,9 @@ lgtm replay <owner/repo> [--since 90d] [--max-prs 300] [--budget-usd 2] [--label
   - Everything else is left unlabelled.
   - Reviewer write access comes from the permission API. That API needs push access, so on a repo the caller can't push to, replay falls back to the review's `author_association` (OWNER, MEMBER, or COLLABORATOR). This is only for labelling history; the Action never uses it for trust.
   - `--labels merged` is for repos with one maintainer, where nobody else reviews: merged is positive (merging takes write access), closed unmerged or reverted is negative, and bot PRs are skipped. These labels record what shipped, not what a reviewer judged, and the report says so.
-  - `--dry-run` labels history and stops, so users can see whether there are enough labels before any model call.
+  - `--labels maintainer` adds two signals to strict, for repos that approve outside GitHub reviews (Prow) or close what they reject: merged with an `lgtm` label is positive, and closed unmerged by someone other than the author, directly or by a bot after their `/close` comment, is negative. Stale closures (`lifecycle/*` labels), robot accounts (`[bot]`, `-bot`, `-robot`), and authors closing their own PRs stay unlabelled. On kubernetes/kubernetes over 30 days it gave 147 positives and 17 negatives in 200 PRs.
+  - `--dry-run` labels history and estimates the model cost from the planned requests, so users can check labels and cost before any model call.
+  - **Cost cap.** `--budget-usd` (default 2) bounds every model call replay makes, probe and perturbation included. Before each call, replay reserves that request's estimated cost: its size at 3 bytes per token, priced at the dearest rate seen so far or $0.10 per million (about twice Jev's list price), and never less than the average call so far. A call that could take spend past the budget isn't sent, and the report covers the PRs scored before it.
   - Found while building (2026-10-16): strict negatives are rare. cli/cli had 147 positives and 4 negatives in 300 closed PRs over a year; Temikus/denkeeper had 1 positive and butter none, since nobody else reviews there. In merged mode denkeeper had 208 and 5.
 - **Content-free probe:** each question is asked against an empty and a shuffled-hunks PR. This reports the question's baseline (its prior). A gating question with a baseline above `approve_at` gets a warning, because it can't tell PRs apart.
 - **Threshold fit:** a sweep over the aggregate.
@@ -344,7 +346,7 @@ Progress: 1, 2, and 3 done (2026-10-16).
 4. **Replay and calibration:**
    - `lgtm replay` with the history labels, content-free probe, threshold fit, `--write`, and `--perturb`.
    - Enforce mode requires a calibration, and caps at needs-human when the replies name a different version than its `snapshot`.
-   - Run it on Temikus/denkeeper and Temikus/butter history with `--labels merged`, and on cli/cli with strict labels, and publish the results in `docs/calibration.md`.
+   - Run it on Temikus/denkeeper and Temikus/butter history with `--labels merged`, and on kubernetes/kubernetes with `--labels maintainer` to check the method on a large, well-reviewed repo, and publish the results in `docs/calibration.md`.
 5. **Website** on getlgtm.dev, with `website.yml` deploying it.
 6. **Release v0.1.0:** GoReleaser binaries, a GHCR image pinned by digest in `action.yml` (the release workflow pushes the image, commits the digest pin, then tags that commit), keyless cosign signing via OIDC, build provenance attestations, a release workflow with `contents: write` and `id-token: write` only, and the `v0` major tag for the Action.
 

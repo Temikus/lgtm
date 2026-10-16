@@ -69,14 +69,14 @@ lgtm config validate
 ### Calibrating
 
 ```sh
-lgtm replay owner/repo --dry-run           # label history only; no model calls
+lgtm replay owner/repo --dry-run           # label history and estimate cost; no model calls
 lgtm replay owner/repo --perturb           # score labelled PRs and report
 lgtm replay owner/repo --write             # also store [calibration] in .github/lgtm.toml
 ```
 
-Replay labels closed PRs from history. By default a PR approved by someone with write access and then merged is positive, and one closed after a changes-requested review, or reverted within 14 days, is negative. For a repo with one maintainer and no reviews, `--labels merged` counts merged PRs as positive and closed ones as negative, skipping bots. These labels are weaker, because they record what shipped rather than what a reviewer judged.
+Replay labels closed PRs from history. By default a PR approved by someone with write access and then merged is positive, and one closed after a changes-requested review, or reverted within 14 days, is negative. Few repos close PRs after a formal changes-requested review, so strict negatives are rare. `--labels maintainer` adds Prow's `lgtm` label as an approval and counts a PR closed unmerged by someone other than its author (directly, or through a bot after their `/close`) as negative; stale closures and authors closing their own PRs stay unlabelled. It works on repos like kubernetes. For a repo with one maintainer and no reviews, `--labels merged` counts merged PRs as positive and closed ones as negative, skipping bots. These labels are weaker, because they record what shipped rather than what a reviewer judged.
 
-It then scores the labelled PRs and picks the lowest `approve_at`, and the highest `deny_at`, that reach `--target-precision` (default 0.95). The fit needs at least 5 positive and 5 negative PRs. `--write` stores the result, with the model version the replies named, and changes nothing else in the file. It writes nothing if the fit fails or if the replies named more than one version. `--budget-usd` (default 2) stops model calls before spend passes it.
+It then scores the labelled PRs and picks the lowest `approve_at`, and the highest `deny_at`, that reach `--target-precision` (default 0.95). The fit needs at least 5 positive and 5 negative PRs. `--write` stores the result, with the model version the replies named, and changes nothing else in the file. It writes nothing if the fit fails or if the replies named more than one version. `--budget-usd` (default 2) caps the run: before each model call, replay reserves that request's estimated cost and stops if the total could pass the budget. `--dry-run` shows the estimate first.
 
 ## Data
 

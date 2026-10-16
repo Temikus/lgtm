@@ -1,0 +1,16 @@
+<!-- lgtm -->
+### LGTM · needs human review
+
+Scoring failed, so a human needs to review this: decision API: HTTP 529: overloaded
+
+<details><summary>Details</summary>
+
+- described: 0.97
+- risk: moderate (0.70)
+- reviewability: easy (0.75)
+- Model: typesafe/jev-1.13 · 4210 input tokens · $0.00018 · 2 calls · scored 0123456
+- Excluded (1): go.sum (+12 −3)
+
+</details>
+
+<!-- lgtm:sha=0123456789abcdef -->

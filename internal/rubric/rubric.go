@@ -230,3 +230,12 @@ func setIf[T any](dst *T, src *T) {
 		*dst = *src
 	}
 }
+
+// JevQuestions keys the questions by ID for a decision request.
+func JevQuestions(qs []Question) map[string]jev.Question {
+	m := make(map[string]jev.Question, len(qs))
+	for _, q := range qs {
+		m[q.ID] = q.Question
+	}
+	return m
+}

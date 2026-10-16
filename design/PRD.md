@@ -331,7 +331,7 @@ It's one landing page:
 
 ## Milestones
 
-Progress: 1, 2, and 3 done (2026-10-16).
+Progress: 1 to 4 done (2026-10-16). The first replays ([docs/calibration.md](../docs/calibration.md)) found that the default rubric approves nothing yet: `injection`, `tested`, and `scoped` need rewording, and caps need their own threshold. These are open decisions.
 
 1. **Bootstrap.**
    - Public repo with an Apache-2.0 license and a `SECURITY.md`.

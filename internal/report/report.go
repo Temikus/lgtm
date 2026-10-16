@@ -166,6 +166,7 @@ var capText = map[verdict.CapKind]string{
 	verdict.CapQuestion:     "a cap question is below the approve threshold",
 	verdict.PartialView:     "LGTM couldn't see the whole diff",
 	verdict.UntrustedAuthor: "the PR is from a fork by an author without write access",
+	verdict.ModelChanged:    "the model version changed since calibration; re-run `lgtm replay --write`",
 	verdict.Borderline:      "the score is borderline and an answer changed when the options were reordered",
 }
 
@@ -187,8 +188,12 @@ func details(r *engine.Result) string {
 			fmt.Fprintf(&b, "- %s: %s\n", Escape(q.ID), infoValue(q))
 		}
 	}
+	model := r.Model
+	if len(r.Served) > 0 {
+		model = strings.Join(r.Served, ", ")
+	}
 	fmt.Fprintf(&b, "- Model: %s · %d input tokens · $%.5f · %d calls · scored %s\n",
-		Escape(r.Model), r.Usage.InputTokens, r.CostUSD, r.Calls, Escape(short(r.PR.HeadSHA)))
+		Escape(model), r.Usage.InputTokens, r.CostUSD, r.Calls, Escape(short(r.PR.HeadSHA)))
 	for _, p := range r.Partial {
 		fmt.Fprintf(&b, "- Partial view: %s\n", Escape(p))
 	}
@@ -245,6 +250,7 @@ type JSONResult struct {
 	HeadSHA   string         `json:"head_sha"`
 	Mode      string         `json:"mode"`
 	Model     string         `json:"model"`
+	Served    []string       `json:"served,omitempty"`
 	Verdict   string         `json:"verdict"`
 	Raw       string         `json:"raw_verdict"`
 	Aggregate float64        `json:"aggregate"`
@@ -276,7 +282,7 @@ type JSONQuestion struct {
 func JSON(r *engine.Result) ([]byte, error) {
 	out := JSONResult{
 		Repo: r.PR.Owner + "/" + r.PR.Repo, Number: r.PR.Number, HeadSHA: r.PR.HeadSHA,
-		Mode: string(r.Mode), Model: r.Model, Verdict: string(r.Verdict.Verdict), Raw: string(r.Verdict.Raw),
+		Mode: string(r.Mode), Model: r.Model, Served: r.Served, Verdict: string(r.Verdict.Verdict), Raw: string(r.Verdict.Raw),
 		Aggregate: r.Verdict.Aggregate, ApproveAt: r.ApproveAt, DenyAt: r.DenyAt,
 		Partial: r.Partial, Untrusted: r.Untrusted, Tokens: r.Usage.InputTokens, CostUSD: r.CostUSD, Calls: r.Calls,
 	}

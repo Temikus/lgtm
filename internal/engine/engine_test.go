@@ -21,6 +21,8 @@ type fakeDecider struct {
 	p    map[string]float64
 	err  error
 	reqs []jev.Request
+	// served is the model the reply names; empty echoes the request.
+	served string
 }
 
 func (f *fakeDecider) Decide(_ context.Context, req jev.Request) (*jev.Response, error) {
@@ -30,7 +32,11 @@ func (f *fakeDecider) Decide(_ context.Context, req jev.Request) (*jev.Response,
 	if f.err != nil {
 		return nil, f.err
 	}
-	out := &jev.Response{Model: req.Model, Answers: map[string]jev.Answer{}, CostUSD: 0.0001, Usage: jev.Usage{InputTokens: 100}}
+	model := req.Model
+	if f.served != "" {
+		model = f.served
+	}
+	out := &jev.Response{Model: model, Answers: map[string]jev.Answer{}, CostUSD: 0.0001, Usage: jev.Usage{InputTokens: 100}}
 	for id, q := range req.Questions {
 		a := jev.Answer{Type: q.Type}
 		switch q.Type {
@@ -174,5 +180,39 @@ pass = ["single"]
 	r = Score(context.Background(), gh.Client, pr, Options{Config: cfg, Decider: d})
 	if r.Verdict.Verdict != verdict.Approve || r.Calls != 2 {
 		t.Errorf("verdict = %+v calls = %d", r.Verdict, r.Calls)
+	}
+}
+
+// A calibration only holds for the dated version it was fitted on.
+func TestScore_ModelChangedSinceCalibration(t *testing.T) {
+	cfg := load(t, `
+mode = "enforce"
+[calibration]
+model = "typesafe/jev-1.13"
+snapshot = "typesafe/jev-1.13-20260917"
+n_labelled = 50
+approve_at = 0.9
+deny_at = 0.1
+`)
+	gh, pr := fakeGitHub(t, false, "write")
+
+	r := Score(context.Background(), gh.Client, pr, Options{Config: cfg, Decider: &fakeDecider{served: "typesafe/jev-1.13-20260917"}})
+	if r.Verdict.Verdict != verdict.Approve {
+		t.Fatalf("same snapshot: verdict = %+v", r.Verdict)
+	}
+	if len(r.Served) != 1 || r.Served[0] != "typesafe/jev-1.13-20260917" {
+		t.Errorf("served = %v", r.Served)
+	}
+
+	r = Score(context.Background(), gh.Client, pr, Options{Config: cfg, Decider: &fakeDecider{served: "typesafe/jev-1.13-20261101"}})
+	if r.Verdict.Verdict != verdict.NeedsHuman || len(r.Verdict.Caps) != 1 || r.Verdict.Caps[0] != verdict.ModelChanged {
+		t.Fatalf("new snapshot: verdict = %+v", r.Verdict)
+	}
+
+	// Without a recorded snapshot there is nothing to compare.
+	cfg.Calibration.Snapshot = ""
+	r = Score(context.Background(), gh.Client, pr, Options{Config: cfg, Decider: &fakeDecider{served: "typesafe/jev-1.13-20261101"}})
+	if r.Verdict.Verdict != verdict.Approve {
+		t.Fatalf("no snapshot: verdict = %+v", r.Verdict)
 	}
 }

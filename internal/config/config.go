@@ -49,6 +49,7 @@ var DefaultExclude = []string{
 // Calibration is written by `lgtm replay --write`.
 type Calibration struct {
 	Model            string         `toml:"model"`
+	Snapshot         string         `toml:"snapshot"` // dated version the replies named
 	Date             toml.LocalDate `toml:"date"`
 	NLabelled        int            `toml:"n_labelled"`
 	ApproveAt        float64        `toml:"approve_at"`
@@ -185,6 +186,15 @@ func (c *Config) Thresholds() (approveAt, denyAt float64) {
 func (c *Config) Policy() verdict.Policy {
 	a, d := c.Thresholds()
 	return verdict.Policy{ApproveAt: a, DenyAt: d, Margin: c.BorderlineMargin, Aggregate: c.Aggregate}
+}
+
+// Snapshot is the dated model version the thresholds in effect were fitted
+// on, or "" when they don't come from a calibration that recorded one.
+func (c *Config) Snapshot() string {
+	if c.Calibrated() {
+		return c.Calibration.Snapshot
+	}
+	return ""
 }
 
 // Calibrated reports whether a calibration exists for the configured model.

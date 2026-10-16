@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/google/go-github/v92/github"
 
@@ -47,6 +48,7 @@ type Result struct {
 	Partial   []string
 	Untrusted bool
 	TrustErr  error
+	Served    []string // distinct model versions the replies named
 	Usage     jev.Usage
 	CostUSD   float64
 	Calls     int
@@ -94,6 +96,9 @@ func Score(ctx context.Context, gh *github.Client, pr prstate.PR, opts Options) 
 		in.Failure = err
 		return r
 	}
+	if snap := cfg.Snapshot(); snap != "" {
+		in.ModelChanged = slices.ContainsFunc(r.Served, func(m string) bool { return m != snap })
+	}
 	for _, q := range r.Questions {
 		in.Values = append(in.Values, verdict.Value{ID: q.ID, Role: q.Role, Value: q.Value, Weight: q.Weight, Err: q.Err})
 	}
@@ -122,12 +127,19 @@ func (r *Result) ask(ctx context.Context, d jev.Decider, calls []prstate.Call) (
 		if err != nil {
 			return out, fmt.Errorf("decision call %d of %d (%s context): %w", i+1, len(calls), c.Context, err)
 		}
+		r.served(resp.Model)
 		r.Usage.InputTokens += resp.Usage.InputTokens
 		r.Usage.OutputTokens += resp.Usage.OutputTokens
 		r.CostUSD += resp.CostUSD
 		out[i] = resp.Answers
 	}
 	return out, nil
+}
+
+func (r *Result) served(model string) {
+	if !slices.Contains(r.Served, model) {
+		r.Served = append(r.Served, model)
+	}
 }
 
 // collect normalises answers and takes the min across a question's calls.
@@ -170,6 +182,7 @@ func (r *Result) consistent(ctx context.Context, d jev.Decider, calls []prstate.
 		if err != nil {
 			return false, err
 		}
+		r.served(resp.Model)
 		r.CostUSD += resp.CostUSD
 		for _, q := range reversed {
 			if resp.Answers[q.ID].Choice != answers[i][q.ID].Choice {

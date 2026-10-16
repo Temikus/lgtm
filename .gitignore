@@ -1,0 +1,27 @@
+# Build output
+/lgtm
+/dist/
+*.test
+*.out
+
+# Go workspace
+go.work
+go.work.sum
+
+# IDE and OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# mise
+mise.local.toml
+
+# Claude Code local state
+.claude/*
+!.claude/skills/
+!.claude/rules/
+
+# Website
+website/node_modules/
+website/.wrangler/

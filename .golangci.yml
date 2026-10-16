@@ -1,0 +1,28 @@
+version: "2"
+
+linters:
+  enable:
+    - errcheck
+    - gocyclo
+    - gosec
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+  settings:
+    errcheck:
+      check-type-assertions: true
+    gocyclo:
+      min-complexity: 15
+    gosec:
+      excludes:
+        - G101 # False positives on test data credentials
+        - G104 # Duplicates errcheck linter
+        - G120 # Test-only mock HTTP handlers don't need body size limits
+  exclusions:
+    rules:
+      - linters: [gosec]
+        path: _test\.go
+      - linters: [gocyclo]
+        path: _test\.go
+

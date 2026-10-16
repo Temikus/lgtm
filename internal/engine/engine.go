@@ -1,0 +1,181 @@
+// Package engine scores one PR: fetch, plan calls, ask, and decide. The
+// score, action, and replay commands all go through Score.
+package engine
+
+import (
+	"context"
+	"errors"
+	"fmt"
+
+	"github.com/google/go-github/v92/github"
+
+	"github.com/Temikus/lgtm/internal/config"
+	"github.com/Temikus/lgtm/internal/jev"
+	"github.com/Temikus/lgtm/internal/prstate"
+	"github.com/Temikus/lgtm/internal/rubric"
+	"github.com/Temikus/lgtm/internal/trust"
+	"github.com/Temikus/lgtm/internal/verdict"
+)
+
+// Options configure a scoring run.
+type Options struct {
+	Config  *config.Config
+	Decider jev.Decider
+	Limits  prstate.Limits // zero means prstate.DefaultLimits
+}
+
+// QuestionResult is one question's outcome.
+type QuestionResult struct {
+	rubric.Question
+	Value  float64
+	Err    error
+	Answer *jev.Answer // from the lowest-scoring call when batched
+	Calls  int
+}
+
+// Result is everything a report needs.
+type Result struct {
+	PR        prstate.PR
+	Mode      config.Mode
+	Model     string
+	ApproveAt float64
+	DenyAt    float64
+	Verdict   verdict.Result
+	Questions []QuestionResult // rubric order
+	Excluded  []prstate.File
+	Unseen    []prstate.Unseen
+	Partial   []string
+	Untrusted bool
+	TrustErr  error
+	Usage     jev.Usage
+	CostUSD   float64
+	Calls     int
+}
+
+// Score never returns an error: every failure becomes a needs-human result
+// whose Verdict.Failure says why.
+func Score(ctx context.Context, gh *github.Client, pr prstate.PR, opts Options) *Result {
+	cfg := opts.Config
+	approve, deny := cfg.Thresholds()
+	r := &Result{PR: pr, Mode: cfg.Mode, Model: cfg.Model, ApproveAt: approve, DenyAt: deny}
+	for _, q := range cfg.Rubric {
+		r.Questions = append(r.Questions, QuestionResult{Question: q, Err: errors.New("not asked")})
+	}
+	in := verdict.Input{}
+	defer func() { r.Verdict = verdict.Decide(cfg.Policy(), in) }()
+
+	snap, err := prstate.Fetch(ctx, gh, pr, cfg.Exclude)
+	if snap != nil {
+		r.Excluded, r.Unseen, r.Partial = snap.Excluded, snap.Unseen, snap.Partial
+	}
+	if err != nil {
+		in.Failure = err
+		return r
+	}
+	r.Untrusted, r.TrustErr = untrusted(ctx, gh, pr, cfg)
+	in.Untrusted = r.Untrusted
+
+	lim := opts.Limits
+	if lim == (prstate.Limits{}) {
+		lim = prstate.DefaultLimits
+	}
+	plan, err := snap.Plan(cfg.Rubric, lim)
+	if err != nil {
+		in.Failure = err
+		return r
+	}
+	r.Unseen = append(r.Unseen, plan.Unseen...)
+	r.Partial = append(r.Partial, plan.Partial...)
+	in.Partial = len(r.Partial) > 0
+
+	answers, err := r.ask(ctx, opts.Decider, plan.Calls)
+	r.collect(answers)
+	if err != nil {
+		in.Failure = err
+		return r
+	}
+	for _, q := range r.Questions {
+		in.Values = append(in.Values, verdict.Value{ID: q.ID, Role: q.Role, Value: q.Value, Weight: q.Weight, Err: q.Err})
+	}
+	in.Consistency = func() (bool, error) { return r.consistent(ctx, opts.Decider, plan.Calls, answers) }
+	return r
+}
+
+// untrusted applies the fork cap: a fork PR is untrusted unless trust_forks
+// is set or its author has write access. A failed lookup is untrusted.
+func untrusted(ctx context.Context, gh *github.Client, pr prstate.PR, cfg *config.Config) (bool, error) {
+	if !pr.Fork || cfg.TrustForks {
+		return false, nil
+	}
+	ok, err := trust.AuthorTrusted(ctx, gh, pr.Owner, pr.Repo, pr.Author)
+	return !ok, err
+}
+
+// callAnswers are one call's answers, aligned with plan.Calls.
+type callAnswers map[string]jev.Answer
+
+func (r *Result) ask(ctx context.Context, d jev.Decider, calls []prstate.Call) ([]callAnswers, error) {
+	out := make([]callAnswers, len(calls))
+	for i, c := range calls {
+		resp, err := d.Decide(ctx, jev.Request{Model: r.Model, State: c.State, Questions: rubric.JevQuestions(c.Questions)})
+		r.Calls++
+		if err != nil {
+			return out, fmt.Errorf("decision call %d of %d (%s context): %w", i+1, len(calls), c.Context, err)
+		}
+		r.Usage.InputTokens += resp.Usage.InputTokens
+		r.Usage.OutputTokens += resp.Usage.OutputTokens
+		r.CostUSD += resp.CostUSD
+		out[i] = resp.Answers
+	}
+	return out, nil
+}
+
+// collect normalises answers and takes the min across a question's calls.
+func (r *Result) collect(answers []callAnswers) {
+	for i := range r.Questions {
+		q := &r.Questions[i]
+		for _, ca := range answers {
+			a, ok := ca[q.ID]
+			if !ok {
+				continue
+			}
+			v, err := q.Normalise(a)
+			if err != nil {
+				q.Err = err
+				break
+			}
+			if q.Calls == 0 || v < q.Value {
+				q.Value, q.Answer, q.Err = v, &a, nil
+			}
+			q.Calls++
+		}
+	}
+}
+
+// consistent re-asks every gating or cap choice question with its options
+// reversed, over the same states, and reports whether every choice held.
+func (r *Result) consistent(ctx context.Context, d jev.Decider, calls []prstate.Call, answers []callAnswers) (bool, error) {
+	for i, c := range calls {
+		var reversed []rubric.Question
+		for _, q := range c.Questions {
+			if q.Type == jev.Choice && q.Role != rubric.Info {
+				reversed = append(reversed, q.Reversed())
+			}
+		}
+		if len(reversed) == 0 {
+			continue
+		}
+		resp, err := d.Decide(ctx, jev.Request{Model: r.Model, State: c.State, Questions: rubric.JevQuestions(reversed)})
+		r.Calls++
+		if err != nil {
+			return false, err
+		}
+		r.CostUSD += resp.CostUSD
+		for _, q := range reversed {
+			if resp.Answers[q.ID].Choice != answers[i][q.ID].Choice {
+				return false, nil
+			}
+		}
+	}
+	return true, nil
+}

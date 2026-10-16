@@ -16,6 +16,7 @@ import (
 
 	"github.com/Temikus/lgtm/internal/jev"
 	"github.com/Temikus/lgtm/internal/rubric"
+	"github.com/Temikus/lgtm/internal/verdict"
 )
 
 // Path is where the config lives in a repo.
@@ -36,14 +37,6 @@ type Mode string
 const (
 	Shadow  Mode = "shadow"
 	Enforce Mode = "enforce"
-)
-
-// Aggregate combines gating values into one.
-type Aggregate string
-
-const (
-	Min          Aggregate = "min"
-	WeightedMean Aggregate = "weighted_mean"
 )
 
 // DefaultExclude keeps generated and vendored files out of patches. Matching
@@ -70,7 +63,7 @@ type Config struct {
 	Mode              Mode
 	ApproveAt         float64
 	DenyAt            float64
-	Aggregate         Aggregate
+	Aggregate         verdict.Aggregate
 	TrustForks        bool
 	Exclude           []string
 	BorderlineMargin  float64
@@ -124,7 +117,7 @@ func Load(data []byte) (*Config, error) {
 		Mode:              Mode(deref(f.Mode, string(Shadow))),
 		ApproveAt:         deref(f.ApproveAt, 0.9),
 		DenyAt:            deref(f.DenyAt, 0.1),
-		Aggregate:         Aggregate(deref(f.Aggregate, string(Min))),
+		Aggregate:         verdict.Aggregate(deref(f.Aggregate, string(verdict.Min))),
 		TrustForks:        deref(f.TrustForks, false),
 		Exclude:           f.Exclude,
 		BorderlineMargin:  deref(f.BorderlineMargin, 0.05),
@@ -188,6 +181,12 @@ func (c *Config) Thresholds() (approveAt, denyAt float64) {
 	return c.ApproveAt, c.DenyAt
 }
 
+// Policy is the verdict policy in effect.
+func (c *Config) Policy() verdict.Policy {
+	a, d := c.Thresholds()
+	return verdict.Policy{ApproveAt: a, DenyAt: d, Margin: c.BorderlineMargin, Aggregate: c.Aggregate}
+}
+
 // Calibrated reports whether a calibration exists for the configured model.
 func (c *Config) Calibrated() bool {
 	return c.Calibration != nil && c.Calibration.Model == c.Model
@@ -200,7 +199,7 @@ func (c *Config) validate() error {
 	if c.Mode != Shadow && c.Mode != Enforce {
 		return fmt.Errorf("mode must be shadow or enforce, got %q", c.Mode)
 	}
-	if c.Aggregate != Min && c.Aggregate != WeightedMean {
+	if c.Aggregate != verdict.Min && c.Aggregate != verdict.WeightedMean {
 		return fmt.Errorf("aggregate must be min or weighted_mean, got %q", c.Aggregate)
 	}
 	if err := validThresholds(c.ApproveAt, c.DenyAt); err != nil {

@@ -9,6 +9,7 @@ import (
 
 	"github.com/Temikus/lgtm/internal/ghtest"
 	"github.com/Temikus/lgtm/internal/rubric"
+	"github.com/Temikus/lgtm/internal/verdict"
 )
 
 const prdExample = `
@@ -66,7 +67,7 @@ func TestLoad_EmptyGivesDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Provider != "openrouter" || c.Model != DefaultModel || c.Mode != Shadow || c.Aggregate != Min {
+	if c.Provider != "openrouter" || c.Model != DefaultModel || c.Mode != Shadow || c.Aggregate != verdict.Min {
 		t.Errorf("defaults = %+v", c)
 	}
 	if a, d := c.Thresholds(); a != 0.9 || d != 0.1 {

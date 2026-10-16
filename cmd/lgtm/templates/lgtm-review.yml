@@ -1,0 +1,25 @@
+# Passes LGTM's needs-human check after a qualifying human approval on a
+# fork PR. Fork review events get a read-only token, so this runs in the
+# base repo's context instead. It never calls the model and needs no key.
+name: LGTM review
+
+on:
+  workflow_run:
+    workflows: [LGTM]
+    types: [completed]
+
+permissions: {}
+
+jobs:
+  approve:
+    if: github.event.workflow_run.event == 'pull_request_review'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      checks: write
+      issues: write
+      pull-requests: read
+      contents: read
+    # No checkout or other steps here either: see lgtm.yml.
+    steps:
+      - uses: Temikus/lgtm@{{.Ref}}

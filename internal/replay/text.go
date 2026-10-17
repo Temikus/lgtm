@@ -26,6 +26,7 @@ func (r *Report) Text(target float64) string {
 	r.textProbe(&b)
 	r.textPerturb(&b)
 	r.textShadow(&b)
+	r.textListed(&b)
 	r.textReview(&b)
 	return b.String()
 }
@@ -138,6 +139,52 @@ func (r *Report) textShadow(b *textWriter) {
 		if g, ok := s.ByVerdict[v]; ok {
 			b.w("  %-12s %3d PRs · median time to merge %s · %.1f comments per PR", v, g.N, dur(g.MedianTimeToMerge), g.MeanComments)
 		}
+	}
+}
+
+// textListed counts verdicts per label and kind. It names every approved
+// known-bad PR, the failure that matters most, and counts known-good PRs a
+// cap question held.
+func (r *Report) textListed(b *textWriter) {
+	if len(r.Listed) == 0 {
+		return
+	}
+	type tally struct{ approve, deny, human, failed, capped int }
+	byGroup := map[string]*tally{}
+	var groups, approved []string
+	for _, l := range r.Listed {
+		g := string(l.Label) + " " + l.Kind
+		t := byGroup[g]
+		if t == nil {
+			t = &tally{}
+			byGroup[g] = t
+			groups = append(groups, g)
+		}
+		if slices.Contains(l.Caps, string(verdict.CapQuestion)) {
+			t.capped++
+		}
+		switch {
+		case l.Err != nil:
+			t.failed++
+		case l.Verdict == string(verdict.Approve):
+			t.approve++
+			if l.Label == Negative {
+				approved = append(approved, l.Ref)
+			}
+		case l.Verdict == string(verdict.Deny):
+			t.deny++
+		default:
+			t.human++
+		}
+	}
+	slices.Sort(groups)
+	b.w("\nListed PRs, outside the fit: %d scored, %d known-bad approved", len(r.Listed), len(approved))
+	for _, g := range groups {
+		t := byGroup[g]
+		b.w("  %-22s %d approve · %d needs-human · %d deny · %d not scored · %d held by a cap question", g, t.approve, t.human, t.deny, t.failed, t.capped)
+	}
+	for _, ref := range approved {
+		b.w("  approved known-bad: %s", clean(ref))
 	}
 }
 

@@ -23,6 +23,11 @@ type Options struct {
 	Config  *config.Config
 	Decider jev.Decider
 	Limits  prstate.Limits // zero means prstate.DefaultLimits
+	// Fetch reads the PR's diff. Nil reads it from GitHub.
+	Fetch prstate.Fetcher
+	// Trusted reports whether a fork PR's author has write access. Nil
+	// asks GitHub; replay passes a stored answer.
+	Trusted func(ctx context.Context, pr prstate.PR) (bool, error)
 }
 
 // QuestionResult is one question's outcome.
@@ -57,7 +62,11 @@ type Result struct {
 // Score never returns an error: every failure becomes a needs-human result
 // whose Verdict.Failure says why.
 func Score(ctx context.Context, gh *github.Client, pr prstate.PR, opts Options) *Result {
-	snap, err := prstate.Fetch(ctx, gh, pr, opts.Config.Exclude)
+	var snap *prstate.Snapshot
+	raw, err := fetchRaw(ctx, gh, pr, opts)
+	if err == nil {
+		snap, err = raw.Snapshot(opts.Config.Exclude)
+	}
 	if err != nil {
 		r := newResult(pr, opts.Config)
 		if snap != nil {
@@ -78,7 +87,7 @@ func ScoreSnapshot(ctx context.Context, gh *github.Client, snap *prstate.Snapsho
 	in := verdict.Input{}
 	defer func() { r.Verdict = verdict.Decide(cfg.Policy(), in) }()
 
-	r.Untrusted, r.TrustErr = untrusted(ctx, gh, snap.PR, cfg)
+	r.Untrusted, r.TrustErr = untrusted(ctx, gh, snap.PR, opts)
 	in.Untrusted = r.Untrusted
 
 	lim := opts.Limits
@@ -126,11 +135,22 @@ func (r *Result) Values() []verdict.Value {
 	return out
 }
 
+func fetchRaw(ctx context.Context, gh *github.Client, pr prstate.PR, opts Options) (*prstate.Raw, error) {
+	if opts.Fetch != nil {
+		return opts.Fetch(ctx, pr)
+	}
+	return prstate.FetchRaw(ctx, gh, pr)
+}
+
 // untrusted applies the fork cap: a fork PR is untrusted unless trust_forks
 // is set or its author has write access. A failed lookup is untrusted.
-func untrusted(ctx context.Context, gh *github.Client, pr prstate.PR, cfg *config.Config) (bool, error) {
-	if !pr.Fork || cfg.TrustForks {
+func untrusted(ctx context.Context, gh *github.Client, pr prstate.PR, opts Options) (bool, error) {
+	if !pr.Fork || opts.Config.TrustForks {
 		return false, nil
+	}
+	if opts.Trusted != nil {
+		ok, err := opts.Trusted(ctx, pr)
+		return !ok, err
 	}
 	ok, err := trust.AuthorTrusted(ctx, gh, pr.Owner, pr.Repo, pr.Author)
 	return !ok, err

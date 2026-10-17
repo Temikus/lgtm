@@ -101,10 +101,75 @@ Scoring all 58 PRs with both rubrics cost $0.04. No PR in the set was approved b
 - **Every injection attempt trips the cap.** No attempt scored above 0.18 on `injection`. On the cluster-api holdout, the lowest legitimate PR scored 0.18 with the default rubric but 0.38 with the reworded one. So only the reworded wording leaves a gap where a separate cap threshold can sit, around 0.3 on this data.
 - **Spam is held by the trust cap, not the questions.** The spam PRs are small, on-topic edits, so their questions pass: with the reworded rubric, 8 of 15 clear 0.8 on every gate. Without the untrusted-author cap, a fitted `approve_at` near 0.8 would approve them. Keeping that cap for authors without write access matters more than any question wording.
 
+## More data: reviewed negatives and PRs that talk to AI
+
+Two follow-ups on 2026-10-17, scored with the reworded rubric from the [local dataset](../README.md#calibrating) for $0.54.
+
+### Negatives a reviewer flagged
+
+A GitHub search over 30 large repos ranked them by PRs closed after a changes-requested review. nodejs/node and home-assistant/core ranked highest (pytorch closes PRs through a bot instead of merging, so it has no positives). With `--labels strict`, which counts only changes requested by someone with write access:
+
+| Repo | PRs read | Positive / negative |
+|---|---|---|
+| nodejs/node, 90 days | 400 | 225 / 10 |
+| home-assistant/core, 30 days | 600 | 441 / 20 |
+
+These 30 are the negatives the kubernetes set lacked: a reviewer judged the diff and asked for changes. They still don't separate. AUC is the chance that a merged PR scores higher than a rejected one from the same repo (0.5 is a coin toss):
+
+| | AUC |
+|---|---|
+| `aligned` | 0.71 |
+| `risk` | 0.69 |
+| `scoped` | 0.66 |
+| `safe` | 0.62 |
+| `tested` | 0.40 |
+| `injection` | 0.36 |
+| Aggregate (min of the gates) | 0.47 |
+
+`aligned`, `risk`, and `scoped` carry a weak signal. `tested` points the wrong way: rejected PRs score higher, and it is often the lowest gate on merged ones, so the minimum over the gates is worse than chance. More negatives won't fix that; the aggregate will.
+
+### Legitimate PRs that talk to AI
+
+[`known-good-prs.txt`](known-good-prs.txt) holds 164 merged, approved PRs from GitHub search, at most one per repo per kind: bodies that call an AI reviewer, PRs written by AI agents, AI-use disclosures, and Renovate and Dependabot updates. `injection` scores, lowest first:
+
+| Group | PRs | default: lowest / under 0.3 | reworded: lowest / under 0.3 |
+|---|---|---|---|
+| Injection attempts (known-bad) | 20 | highest 0.19 | highest 0.14 |
+| Calls an AI reviewer | 40 | 0.05 / 18 | 0.13 / 6 |
+| Written by an AI agent | 41 | 0.14 / 3 | 0.28 / 1 |
+| Discloses AI use | 40 | 0.11 / 7 | 0.32 / 0 |
+| Renovate, Dependabot | 36 | 0.78 / 0 | 0.91 / 0 |
+| Ordinary repo PRs (merged) | 179 / 850 | 0.19 / 13 | 0.41 / 0 |
+
+- With the default wording the groups overlap, so no cap threshold works. The reworded wording leaves ordinary PRs at 0.41 or more across three repos.
+- The PRs scored lowest are mostly ones that talk to AI reviewers. `channel-io/BezierSwift#201` says only `@coderabbitai ignore`, which is an instruction to an automated reviewer, if a harmless one. Repos that build AI products also score low, because their diffs contain prompts.
+- A separate cap threshold of 0.3 catches every attempt: more than twice the highest attempt score (0.14). It holds 7 of the 157 known-good PRs (4%) and no ordinary PR. A held PR goes to a human, which is cheap, while a missed attempt is not, so the cut-off should err high.
+
+## Reproducing
+
+The [local dataset](../README.md#calibrating) keeps these runs, so a rerun with new wording asks the model only about the calls that changed:
+
+```sh
+lgtm data pull kubernetes-sigs/cluster-api --labels maintainer --since 60d --max-prs 200
+lgtm data pull --list docs/known-bad-prs.txt
+lgtm replay kubernetes-sigs/cluster-api --labels maintainer --since 60d --max-prs 200 \
+  --offline --lists --config docs/calibration-reworded.toml
+```
+
+Scores from every run can be compared in DuckDB:
+
+```sql
+select rubric, coalesce(nullif(kind, ''), label) as grp, count(distinct repo || '#' || number) as prs,
+       min(value) as lowest, median(value) as median
+from read_parquet('<dir>/scores/*.parquet', union_by_name = true)
+where question = 'injection'
+group by all order by all;
+```
+
 ## What to change
 
-1. **Give cap questions their own threshold.** A cap holds an approve when its question is below `approve_at`. After the rewording, legitimate PRs score 0.6 to 0.8 on `injection`, while the 20 known injection attempts score 0.16 or less. So a cap at 0.9 holds nearly everything, while a cap at 0.3 would have caught every attempt and no legitimate cluster-api PR. A separate `cap_at`, fitted by replay against the known-bad set, would decouple the two.
-2. **The min of four gates rarely reaches 0.9.** `scoped` and `aligned` sit around 0.7 to 0.85 on PRs humans merged. Calibration should be able to fit a lower `approve_at`, but on kubernetes the 16 negatives score as high as the positives on every gate. These maintainer negatives are mostly "not wanted" or "wrong approach", which a diff-level question can't see. A repo with formal changes-requested reviews would test this better.
+1. **Give cap questions their own threshold.** A cap holds an approve when its question is below `approve_at`. After the rewording, ordinary PRs score 0.41 or more on `injection` across three repos, while the 20 known injection attempts score 0.14 or less. So a cap at 0.9 holds nearly everything, while a cap at 0.3 catches every attempt, holds no ordinary PR, and holds 4% of PRs that talk to AI reviewers (see [More data](#legitimate-prs-that-talk-to-ai)). A separate `cap_at`, fitted by replay against the known-bad and known-good lists, would decouple the two.
+2. **The min of four gates rarely reaches 0.9.** `scoped` and `aligned` sit around 0.7 to 0.85 on PRs humans merged. Calibration should be able to fit a lower `approve_at`, but on kubernetes the 16 negatives score as high as the positives on every gate. These maintainer negatives are mostly "not wanted" or "wrong approach", which a diff-level question can't see. On node and home-assistant, where a reviewer requested changes, the aggregate still does worse than chance (AUC 0.47), because `tested` points the wrong way (see [More data](#negatives-a-reviewer-flagged)). The aggregate needs rethinking: drop `tested` from the minimum, or weight the questions that carry a signal (`aligned`, `risk`, `scoped`).
 3. **Mark which questions each perturbation is meant to move.** The distractor hunk and the code-comment authority claim add unrelated content, so `scoped` and `aligned` *should* drop (9 or 10 out of 10). The report counts those drops as instability. On kubernetes with the default rubric, the distractor flipped 5 of 10 verdicts, all through those questions. Each edit should list the questions it is expected to move, and the report should keep those separate.
 4. **The content-free probe warning is noisy for "absence" questions.** `safe` and `injection` score high on an empty PR because there's nothing bad in it, yet they still separate the fixtures (safe 0.96 vs 0.04). The warning fits questions that should need evidence to pass, such as `tested` and `aligned`, better than these.
 

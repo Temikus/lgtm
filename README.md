@@ -72,15 +72,19 @@ lgtm config validate
 lgtm replay owner/repo --dry-run           # label history and estimate cost; no model calls
 lgtm replay owner/repo --perturb           # score labelled PRs and report
 lgtm replay owner/repo --write             # also store [calibration] in .github/lgtm.toml
+lgtm replay owner/repo --offline           # rerun from the local dataset: no GitHub calls
+lgtm data pull --list docs/known-bad-prs.txt && lgtm replay owner/repo --lists
 ```
 
 Replay labels closed PRs from history. By default a PR approved by someone with write access and then merged is positive, and one closed after a changes-requested review, or reverted within 14 days, is negative. Few repos close PRs after a formal changes-requested review, so strict negatives are rare. `--labels maintainer` adds Prow's `lgtm` label as an approval and counts a PR closed unmerged by someone other than its author (directly, or through a bot after their `/close`) as negative; stale closures and authors closing their own PRs stay unlabelled. It works on repos like kubernetes. For a repo with one maintainer and no reviews, `--labels merged` counts merged PRs as positive and closed ones as negative, skipping bots. These labels are weaker, because they record what shipped rather than what a reviewer judged.
 
 It then scores the labelled PRs and picks the lowest `approve_at`, and the highest `deny_at`, that reach `--target-precision` (default 0.95). The fit needs at least 5 positive and 5 negative PRs. `--write` stores the result, with the model version the replies named, and changes nothing else in the file. It writes nothing if the fit fails or if the replies named more than one version. `--budget-usd` (default 2) caps the run: before each model call, replay reserves that request's estimated cost and stops if the total could pass the budget. `--dry-run` shows the estimate first.
 
+Replay keeps PRs, labels, diffs, and model replies in Parquet files under your cache directory (`lgtm data dir` prints it), so a rerun reads only the PR list and asks the model only about calls it hasn't seen. `--offline` reads nothing from GitHub, and `--rescore` asks the model again. The first model call of each run always goes to the model, and stored replies are reused only if they came from the version it serves now, so a silent model update can't hide behind the cache. To start again, delete the directory. Every run also adds per-question scores to a `scores` table you can query, for example with DuckDB: `select * from read_parquet('<dir>/scores/*.parquet', union_by_name=true)`.
+
 ## Data
 
-LGTM sends PR content (title, description, linked issue titles, and diffs) to the model provider. Paths matched by `exclude` are never sent. On OpenRouter, turn on the data-policy setting that refuses providers which train on inputs. Request bodies are never logged unless `LGTM_DEBUG=1`, and Action logs on public repos are public.
+LGTM sends PR content (title, description, linked issue titles, and diffs) to the model provider. Paths matched by `exclude` are never sent. On OpenRouter, turn on the data-policy setting that refuses providers which train on inputs. Request bodies are never logged unless `LGTM_DEBUG=1`, and Action logs on public repos are public. `lgtm replay` and `lgtm data` keep PR content and model replies on your machine, in the dataset directory; delete it, or pass `--no-data`, to keep nothing.
 
 ## Development
 

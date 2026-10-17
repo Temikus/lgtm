@@ -39,6 +39,6 @@ func newRootCmd() *cobra.Command {
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "lgtm %s (%s)\n", version, commit)
 		},
 	})
-	root.AddCommand(newScoreCmd(), newReplayCmd(), newConfigCmd(), newActionCmd(), newInitCmd())
+	root.AddCommand(newScoreCmd(), newReplayCmd(), newDataCmd(), newConfigCmd(), newActionCmd(), newInitCmd())
 	return root
 }

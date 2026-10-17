@@ -223,8 +223,11 @@ A partial view can deny or escalate but **never approve**. The report says which
 Raw Jev probabilities aren't calibrated, and the bias profile changes with the task and the model version. `lgtm replay` scores past PRs, compares the results with what humans decided, and chooses the thresholds. It's the PR-side version of Denkeeper's `decide replay`.
 
 ```
-lgtm replay <owner/repo> [--since 90d] [--max-prs 300] [--budget-usd 2] [--labels strict|merged]
+lgtm replay <owner/repo> [--since 90d] [--max-prs 300] [--budget-usd 2] [--labels strict|maintainer|merged]
             [--target-precision 0.95] [--write] [--perturb] [--perturb-sample 10] [--dry-run]
+            [--data DIR | --no-data] [--offline] [--rescore] [--lists]
+lgtm data pull <owner/repo> [--since] [--max-prs] [--labels]   # store history without model calls
+lgtm data pull --list FILE [--label negative|positive]        # store known-bad or known-good PRs
 ```
 
 - **Labels from history**, fetched through the GitHub API:
@@ -237,6 +240,14 @@ lgtm replay <owner/repo> [--since 90d] [--max-prs 300] [--budget-usd 2] [--label
   - `--labels maintainer` adds two signals to strict, for repos that approve outside GitHub reviews (Prow) or close what they reject: merged with an `lgtm` label is positive, and closed unmerged by someone other than the author, directly or by a bot after their `/close` comment, is negative. Stale closures (`lifecycle/*` labels), robot accounts (`[bot]`, `-bot`, `-robot`), and authors closing their own PRs stay unlabelled. On kubernetes/kubernetes over 30 days it gave 147 positives and 17 negatives in 200 PRs.
   - `--dry-run` labels history and estimates the model cost from the planned requests, so users can check labels and cost before any model call.
   - **Cost cap.** `--budget-usd` (default 2) bounds every model call replay makes, probe and perturbation included. Before each call, replay reserves that request's estimated cost: its size at 3 bytes per token, priced at the dearest rate seen so far or $0.10 per million (about twice Jev's list price), and never less than the average call so far. A call that could take spend past the budget isn't sent, and the report covers the PRs scored before it.
+  - **Local dataset.** Replay keeps what it reads in Parquet tables under the user's cache directory (`--data` to move it, `--no-data` to turn it off), so tuning a rubric doesn't re-download history or re-pay for unchanged model calls:
+    - `prs`, `labels`, and `files` hold PR metadata, labels per mode, and diffs before exclude globs. A later run reads only the PR list, and labels again only PRs closed less than 14 days before they were labelled, since a revert could still change them. `--offline` reads nothing from GitHub.
+    - `responses` maps a hash of each model request to its reply. A hit costs nothing and doesn't count towards the budget; `--rescore` asks again. The perturbation baseline always asks twice.
+    - The request names the short model name, which the provider can move to a new dated version. So the first call of each run always asks the model, and a stored reply is reused only if it came from the version served then. After a silent move, every reply is asked again, and `--write` fits the new version.
+    - `scores` gets one row per PR and question on every run, with the label, rubric hash, and served version, for fitting outside LGTM (DuckDB, pandas).
+    - The fork author check is stored too, including a 403 from the permission API, with the login that got it. A different login, or the same one after 30 days, checks again, since it may have push access. Rate limits and other errors aren't stored. `--offline` uses what is stored.
+    - Each run appends one part file per table, and a key's latest write wins.
+  - **Listed PRs.** `lgtm data pull --list` stores PRs from a hand-made list, labelled negative (known attacks, injection attempts, and spam, [docs/known-bad-prs.txt](../docs/known-bad-prs.txt)) or, with `--label positive`, positive (known-good PRs, such as ones whose text addresses bots or AI, [docs/known-good-prs.txt](../docs/known-good-prs.txt)). `--lists` scores them in a separate report section that names any approved known-bad PR and counts known-good PRs a cap question held. They stay out of the threshold fit.
   - Found while building (2026-10-16): strict negatives are rare. cli/cli had 147 positives and 4 negatives in 300 closed PRs over a year; Temikus/denkeeper had 1 positive and butter none, since nobody else reviews there. In merged mode denkeeper had 208 and 5.
 - **Content-free probe:** each question is asked against an empty and a shuffled-hunks PR. This reports the question's baseline (its prior). A gating question with a baseline above `approve_at` gets a warning, because it can't tell PRs apart.
 - **Threshold fit:** a sweep over the aggregate.
@@ -331,7 +342,7 @@ It's one landing page:
 
 ## Milestones
 
-Progress: 1 to 4 done (2026-10-16). The first replays ([docs/calibration.md](../docs/calibration.md)) found that the default rubric approves nothing yet: `injection`, `tested`, and `scoped` need rewording, and caps need their own threshold. A holdout replay on kubernetes-sigs/cluster-api and a set of known-bad PRs (2026-10-17) back both changes: no attack or injection attempt was approved, and spam is held only by the untrusted-author cap. These are open decisions.
+Progress: 1 to 4 done (2026-10-16). The first replays ([docs/calibration.md](../docs/calibration.md)) found that the default rubric approves nothing yet: `injection`, `tested`, and `scoped` need rewording, and caps need their own threshold. A holdout replay on kubernetes-sigs/cluster-api and a set of known-bad PRs (2026-10-17) back both changes: no attack or injection attempt was approved, and spam is held only by the untrusted-author cap. These are open decisions. The local replay dataset (2026-10-17) cut a repeat cluster-api pull from 844 GitHub calls to 113, and an offline replay to none and $0. More data the same day (node and home-assistant strict negatives, 164 known-good PRs that talk to AI) supports a cap threshold near 0.3 with the reworded `injection`, and shows the min-of-gates aggregate does no better than chance on reviewed negatives, mainly because of `tested`.
 
 1. **Bootstrap.**
    - Public repo with an Apache-2.0 license and a `SECURITY.md`.

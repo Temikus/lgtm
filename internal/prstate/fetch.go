@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strconv"
 
 	"github.com/bmatcuk/doublestar/v4"
@@ -69,6 +70,7 @@ type File struct {
 	Additions    int    `json:"additions"`
 	Deletions    int    `json:"deletions"`
 	Patch        string `json:"patch,omitempty"`
+	Changes      int    `json:"-"` // GitHub's count; above 0 with no patch means GitHub omitted it
 }
 
 // Unseen is a file the model could not see in full, and why.
@@ -91,22 +93,57 @@ type Snapshot struct {
 
 // Fetch reads the diff for pr and applies exclude globs.
 func Fetch(ctx context.Context, gh *github.Client, pr PR, exclude []string) (*Snapshot, error) {
+	raw, err := FetchRaw(ctx, gh, pr)
+	if err != nil {
+		return nil, err
+	}
+	return raw.Snapshot(exclude)
+}
+
+// Raw is what Fetch reads from GitHub, before exclude globs. Replay stores
+// it so a later run can build the snapshot without GitHub.
+type Raw struct {
+	PR           PR
+	Files        []File
+	LinkedIssues []string
+	Partial      []string // why GitHub's file list is incomplete
+}
+
+// Fetcher reads a PR's raw diff. Replay passes one that reads its local
+// dataset first.
+type Fetcher func(ctx context.Context, pr PR) (*Raw, error)
+
+// FetchRaw reads pr's files and linked issue titles.
+func FetchRaw(ctx context.Context, gh *github.Client, pr PR) (*Raw, error) {
 	s := &Snapshot{PR: pr}
 	files, err := s.fetchFiles(ctx, gh)
 	if err != nil {
 		return nil, err
 	}
+	raw := &Raw{PR: pr, Partial: s.Partial}
 	for _, f := range files {
-		file := File{
+		raw.Files = append(raw.Files, File{
 			Path: f.GetFilename(), PreviousPath: f.GetPreviousFilename(), Status: f.GetStatus(),
-			Additions: f.GetAdditions(), Deletions: f.GetDeletions(), Patch: f.GetPatch(),
-		}
+			Additions: f.GetAdditions(), Deletions: f.GetDeletions(), Patch: f.GetPatch(), Changes: f.GetChanges(),
+		})
+	}
+	if len(raw.Files) > 0 {
+		raw.LinkedIssues = linkedIssueTitles(ctx, gh, pr)
+	}
+	return raw, nil
+}
+
+// Snapshot applies exclude globs. It returns ErrNoFiles, with the snapshot,
+// when nothing is left to score.
+func (r *Raw) Snapshot(exclude []string) (*Snapshot, error) {
+	s := &Snapshot{PR: r.PR, Partial: slices.Clone(r.Partial)}
+	for _, file := range r.Files {
 		if matchAny(exclude, file.Path) {
 			file.Patch = ""
 			s.Excluded = append(s.Excluded, file)
 			continue
 		}
-		if file.Patch == "" && f.GetChanges() > 0 {
+		if file.Patch == "" && file.Changes > 0 {
 			s.Unseen = append(s.Unseen, Unseen{Path: file.Path, Reason: "no patch from GitHub (binary or too large)"})
 			s.Partial = appendOnce(s.Partial, "GitHub omitted some patches")
 		}
@@ -115,7 +152,7 @@ func Fetch(ctx context.Context, gh *github.Client, pr PR, exclude []string) (*Sn
 	if len(s.Files) == 0 {
 		return s, ErrNoFiles
 	}
-	s.LinkedIssues = linkedIssueTitles(ctx, gh, pr)
+	s.LinkedIssues = slices.Clone(r.LinkedIssues)
 	return s, nil
 }
 

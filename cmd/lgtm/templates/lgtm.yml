@@ -24,6 +24,8 @@ jobs:
       pull-requests: write
       issues: write
       contents: read
+      # Read-only: lets LGTM see commit statuses from CI that isn't Actions.
+      statuses: read
     # pull_request_target gives this job secrets and a write token while the
     # PR is untrusted. Never add a checkout or any other step to this job:
     # PR code running here would get both. LGTM reads the diff through the

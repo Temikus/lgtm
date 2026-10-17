@@ -173,6 +173,7 @@ var capText = map[verdict.CapKind]string{
 	verdict.PartialView:     "LGTM couldn't see the whole diff",
 	verdict.LockfileSource:  "a lockfile pulls a package from outside the usual registries (`lockfile_registries` adds hosts)",
 	verdict.AutoRunCommand:  "the diff sets a command to run on its own on developers' machines (an editor task on folder open or an AI-agent hook)",
+	verdict.CIFailing:       "a required check failed on this commit",
 	verdict.UntrustedAuthor: "the PR is from a fork by an author without write access",
 	verdict.ModelChanged:    "the model version changed since calibration; re-run `lgtm replay --write`",
 	verdict.Borderline:      "the score is borderline and an answer changed when the options were reordered",
@@ -204,6 +205,12 @@ func details(r *engine.Result) string {
 		Escape(model), r.Usage.InputTokens, r.CostUSD, r.Calls, Escape(short(r.PR.HeadSHA)))
 	for _, p := range r.Partial {
 		fmt.Fprintf(&b, "- Partial view: %s\n", Escape(p))
+	}
+	for _, c := range r.CIFailed {
+		fmt.Fprintf(&b, "- Failed required check: %s\n", Escape(c))
+	}
+	if r.CIErr != nil {
+		fmt.Fprintf(&b, "- Couldn't read CI status: %s\n", Escape(capLen(r.CIErr.Error(), maxErrorLen)))
 	}
 	for _, a := range r.AutoRuns {
 		fmt.Fprintf(&b, "- Auto-run: %s in %s\n", Escape(a.What), Escape(a.Path))
@@ -353,6 +360,18 @@ func Text(r *engine.Result) string {
 	}
 	for _, u := range r.Unseen {
 		fmt.Fprintf(&b, "not seen: %s (%s)\n", clean(u.Path), clean(u.Reason))
+	}
+	for _, c := range r.CIFailed {
+		fmt.Fprintf(&b, "failed check: %s\n", clean(c))
+	}
+	if r.CIErr != nil {
+		fmt.Fprintf(&b, "CI status unread: %s\n", clean(capLen(r.CIErr.Error(), maxErrorLen)))
+	}
+	for _, s := range r.LockSources {
+		fmt.Fprintf(&b, "lockfile source: %s resolves from %s\n", clean(s.Path), clean(s.Host))
+	}
+	for _, a := range r.AutoRuns {
+		fmt.Fprintf(&b, "auto-run: %s in %s\n", clean(a.What), clean(a.Path))
 	}
 	for _, f := range r.Excluded {
 		fmt.Fprintf(&b, "excluded: %s\n", clean(f.Path))

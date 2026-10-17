@@ -271,6 +271,7 @@ AUC is the chance that a kept PR scores higher than a reverted one. 0.5 is chanc
 - **`breaks` is a cap at 0.7.** It holds 40% of reverted and 11% of kept PRs on the holdout. On home-assistant's merged history it holds 15 of 354 (4%).
 - **With the cap, the default rubric approves 14% of reverted PRs and 25% of kept ones** on the holdout.
 - **Adding `breaks` didn't move the safety results:** no legitimate PR fell below `veto_at`, and the same attacks were caught.
+- **A failed required check is a strong signal.** At their merge head, 10% of reverted PRs (6 of 58) had a failed required check, against 1.7% of kept ones (2 of 116). That's in the 5 repos whose required checks are readable through rulesets. Counting any failed check gives 23% against 16%, too noisy to hold on, because optional and flaky checks fail often. So LGTM holds only on required checks.
 - **The research agrees.** Size, spread, and CI results are the best-supported breakage signals, and LLMs judging a diff alone have low precision (5 to 26% across benchmarks). Precision matters less for a cap than for a deny: a false hold costs a human look.
 
 ## Reproducing

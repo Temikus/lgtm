@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/go-github/v92/github"
 
+	"github.com/Temikus/lgtm/internal/ci"
 	"github.com/Temikus/lgtm/internal/config"
 	"github.com/Temikus/lgtm/internal/jev"
 	"github.com/Temikus/lgtm/internal/prstate"
@@ -29,7 +30,15 @@ type Options struct {
 	// Trusted reports whether a fork PR's author has write access. Nil
 	// asks GitHub; replay passes a stored answer.
 	Trusted func(ctx context.Context, pr prstate.PR) (bool, error)
+	// CI returns the required checks that failed on the PR's head. Nil asks
+	// GitHub; replay passes one that returns nothing, since a merged PR's CI
+	// says little about scoring it again.
+	CI func(ctx context.Context, pr prstate.PR) ([]string, error)
 }
+
+// OwnCheck is LGTM's check run name (ghout.CheckName). It is never counted
+// as a required check of its own PR.
+const OwnCheck = "LGTM"
 
 // QuestionResult is one question's outcome.
 type QuestionResult struct {
@@ -57,12 +66,16 @@ type Result struct {
 	// registries; any of them holds approve.
 	LockSources []prstate.LockSource
 	AutoRuns    []prstate.AutoRun
-	Untrusted   bool
-	TrustErr    error
-	Served      []string // distinct model versions the replies named
-	Usage       jev.Usage
-	CostUSD     float64
-	Calls       int
+	// CIFailed are required checks that failed on the head; CIErr says why
+	// they couldn't be read, which doesn't hold the PR.
+	CIFailed  []string
+	CIErr     error
+	Untrusted bool
+	TrustErr  error
+	Served    []string // distinct model versions the replies named
+	Usage     jev.Usage
+	CostUSD   float64
+	Calls     int
 }
 
 // Score never returns an error: every failure becomes a needs-human result
@@ -103,6 +116,8 @@ func ScoreSnapshot(ctx context.Context, gh *github.Client, snap *prstate.Snapsho
 	in.LockSource = len(r.LockSources) > 0
 	r.AutoRuns = slices.Clone(snap.AutoRuns)
 	in.AutoRun = len(r.AutoRuns) > 0
+	r.CIFailed, r.CIErr = failedChecks(ctx, gh, snap.PR, opts)
+	in.CIFailed = len(r.CIFailed) > 0
 
 	lim := opts.Limits
 	if lim == (prstate.Limits{}) {
@@ -154,6 +169,16 @@ func fetchRaw(ctx context.Context, gh *github.Client, pr prstate.PR, opts Option
 		return opts.Fetch(ctx, pr)
 	}
 	return prstate.FetchRaw(ctx, gh, pr)
+}
+
+func failedChecks(ctx context.Context, gh *github.Client, pr prstate.PR, opts Options) ([]string, error) {
+	if opts.CI != nil {
+		return opts.CI(ctx, pr)
+	}
+	if gh == nil || pr.BaseRef == "" {
+		return nil, nil
+	}
+	return ci.Failed(ctx, gh, pr.Owner, pr.Repo, pr.BaseRef, pr.HeadSHA, opts.Config.CIRequired, OwnCheck)
 }
 
 // untrusted applies the fork cap: a fork PR is untrusted unless trust_forks

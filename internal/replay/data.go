@@ -116,6 +116,7 @@ func forbidden(err error) bool {
 
 func (d Data) engineOptions(gh *github.Client, eo engine.Options) engine.Options {
 	eo.Fetch, eo.Trusted = d.Fetcher(gh), d.Trusted(gh)
+	eo.CI = func(context.Context, prstate.PR) ([]string, error) { return nil, nil }
 	return eo
 }
 

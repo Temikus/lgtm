@@ -26,6 +26,10 @@ deny_at = 0.1
 # crates.io, RubyGems, or pub.dev holds approve. Add private registries:
 # lockfile_registries = ["npm.example.com"]
 
+# A failed required check holds approve. Ruleset checks are read from
+# GitHub; with classic branch protection, name them here:
+# ci_required = ["test", "lint"]
+
 # Fork PRs from authors without write access never get approve.
 trust_forks = false
 

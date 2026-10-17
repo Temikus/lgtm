@@ -188,17 +188,18 @@ func (d Data) stored(repo string, opts HistoryOptions) ([]Sample, error) {
 	return out, nil
 }
 
-// KnownBad is one PR from a known-bad list and LGTM's verdict on it.
-type KnownBad struct {
+// Listed is one PR from a known-bad or known-good list and LGTM's verdict.
+type Listed struct {
 	Ref     string
 	Kind    string
+	Label   Label
 	Verdict string
 	Caps    []string
 	Err     error
 }
 
-// knownBad lists the store's known-bad PRs as samples, keyed by position.
-func (d Data) knownBad() ([]Sample, []string) {
+// listed returns the store's listed PRs as samples, with their kinds.
+func (d Data) listed() ([]Sample, []string) {
 	var ss []Sample
 	var kinds []string
 	for _, l := range d.Store.Labels(dataset.SourceList) {

@@ -29,7 +29,7 @@ func TestPullList(t *testing.T) {
 	entries := []ListEntry{{Kind: "attack", Owner: "x", Repo: "y", Number: 4}, {Kind: "attack", Owner: "x", Repo: "gone", Number: 1}}
 
 	d := Data{Store: storeAt(t, dir)}
-	st, err := PullList(context.Background(), gh.Client, d, entries)
+	st, err := PullList(context.Background(), gh.Client, d, entries, Negative)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,14 +39,14 @@ func TestPullList(t *testing.T) {
 	if err := d.Store.Flush(); err != nil {
 		t.Fatal(err)
 	}
-	ss, kinds := Data{Store: storeAt(t, dir)}.knownBad()
+	ss, kinds := Data{Store: storeAt(t, dir)}.listed()
 	if len(ss) != 1 || kinds[0] != "attack" || ss[0].Label != Negative || ss[0].PR.HeadSHA != "head4" {
-		t.Errorf("known-bad = %+v %v", ss, kinds)
+		t.Errorf("listed = %+v %v", ss, kinds)
 	}
 
 	// A second pull reads only the PR GitHub didn't serve.
 	gh.Reset()
-	st, err = PullList(context.Background(), gh.Client, Data{Store: storeAt(t, dir)}, entries)
+	st, err = PullList(context.Background(), gh.Client, Data{Store: storeAt(t, dir)}, entries, Negative)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,5 +78,25 @@ func TestPull_ThenOfflineHistory(t *testing.T) {
 	}
 	if _, ok := o.History.Data.Store.Raw("o/r", ss[0].PR.Number, ss[0].PR.HeadSHA); !ok {
 		t.Error("pull didn't store the diff")
+	}
+}
+
+func TestPullList_KnownGood(t *testing.T) {
+	gh := ghtest.New(t)
+	gh.Mux.HandleFunc("GET /repos/x/y/pulls/5", ghtest.Reply(200, fakePR{n: 5, title: "Bump deps", body: "@coderabbitai review", author: "ann", merged: true, closed: day}.json()))
+	gh.Mux.HandleFunc("GET /repos/x/y/compare/base...head5", ghtest.Reply(200, map[string]any{"files": []any{
+		map[string]any{"filename": "go.mod", "status": "modified", "additions": 1, "changes": 1, "patch": "@@ -1 +1 @@\n+go 1.27\n"},
+	}}))
+	d := Data{Store: storeAt(t, t.TempDir())}
+	entries := []ListEntry{{Kind: "ai-text", Owner: "x", Repo: "y", Number: 5}}
+	if _, err := PullList(context.Background(), gh.Client, d, entries, "maybe"); err == nil {
+		t.Error("want an error for a label that isn't positive or negative")
+	}
+	if _, err := PullList(context.Background(), gh.Client, d, entries, Positive); err != nil {
+		t.Fatal(err)
+	}
+	ss, kinds := d.listed()
+	if len(ss) != 1 || ss[0].Label != Positive || kinds[0] != "ai-text" {
+		t.Errorf("listed = %+v %v", ss, kinds)
 	}
 }

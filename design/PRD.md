@@ -225,9 +225,9 @@ Raw Jev probabilities aren't calibrated, and the bias profile changes with the t
 ```
 lgtm replay <owner/repo> [--since 90d] [--max-prs 300] [--budget-usd 2] [--labels strict|maintainer|merged]
             [--target-precision 0.95] [--write] [--perturb] [--perturb-sample 10] [--dry-run]
-            [--data DIR | --no-data] [--offline] [--rescore] [--known-bad]
+            [--data DIR | --no-data] [--offline] [--rescore] [--lists]
 lgtm data pull <owner/repo> [--since] [--max-prs] [--labels]   # store history without model calls
-lgtm data pull --list docs/known-bad-prs.txt                    # store known-bad PRs
+lgtm data pull --list FILE [--label negative|positive]        # store known-bad or known-good PRs
 ```
 
 - **Labels from history**, fetched through the GitHub API:
@@ -247,7 +247,7 @@ lgtm data pull --list docs/known-bad-prs.txt                    # store known-ba
     - `scores` gets one row per PR and question on every run, with the label, rubric hash, and served version, for fitting outside LGTM (DuckDB, pandas).
     - The fork author check is stored too, including a 403 from the permission API, with the login that got it. A different login, or the same one after 30 days, checks again, since it may have push access. Rate limits and other errors aren't stored. `--offline` uses what is stored.
     - Each run appends one part file per table, and a key's latest write wins.
-  - **Known-bad PRs.** `lgtm data pull --list` stores PRs from a list of known attacks, injection attempts, and spam ([docs/known-bad-prs.txt](../docs/known-bad-prs.txt)), and `--known-bad` scores them in a separate report section that names any approved one. They stay out of the threshold fit.
+  - **Listed PRs.** `lgtm data pull --list` stores PRs from a hand-made list, labelled negative (known attacks, injection attempts, and spam, [docs/known-bad-prs.txt](../docs/known-bad-prs.txt)) or, with `--label positive`, positive (known-good PRs, such as ones whose text addresses bots or AI, [docs/known-good-prs.txt](../docs/known-good-prs.txt)). `--lists` scores them in a separate report section that names any approved known-bad PR and counts known-good PRs a cap question held. They stay out of the threshold fit.
   - Found while building (2026-10-16): strict negatives are rare. cli/cli had 147 positives and 4 negatives in 300 closed PRs over a year; Temikus/denkeeper had 1 positive and butter none, since nobody else reviews there. In merged mode denkeeper had 208 and 5.
 - **Content-free probe:** each question is asked against an empty and a shuffled-hunks PR. This reports the question's baseline (its prior). A gating question with a baseline above `approve_at` gets a warning, because it can't tell PRs apart.
 - **Threshold fit:** a sweep over the aggregate.

@@ -17,12 +17,12 @@ import (
 )
 
 type replayOpts struct {
-	since, labels, cfgPath string
-	maxPRs, sample         int
-	budget, target         float64
-	write, perturb, dryRun bool
-	offline, rescore, bad  bool
-	data                   dataOpts
+	since, labels, cfgPath  string
+	maxPRs, sample          int
+	budget, target          float64
+	write, perturb, dryRun  bool
+	offline, rescore, lists bool
+	data                    dataOpts
 }
 
 func newReplayCmd() *cobra.Command {
@@ -57,7 +57,7 @@ func newReplayCmd() *cobra.Command {
 	f.StringVar(&o.cfgPath, "config", config.Path, "config file to read and, with --write, update")
 	f.BoolVar(&o.offline, "offline", false, "read PRs only from the local dataset (fill it with lgtm data pull)")
 	f.BoolVar(&o.rescore, "rescore", false, "ask the model again even when the dataset has its answer")
-	f.BoolVar(&o.bad, "known-bad", false, "also score the dataset's known-bad PRs (lgtm data pull --list), outside the fit")
+	f.BoolVar(&o.lists, "lists", false, "also score the dataset's listed PRs (lgtm data pull --list), outside the fit")
 	o.data.flags(f)
 	return cmd
 }
@@ -99,7 +99,7 @@ func (o replayOpts) run(cmd *cobra.Command, ref string) error {
 		BudgetUSD: o.budget, TargetPrecision: o.target, History: hist,
 		Perturb: o.perturb, PerturbSample: o.sample,
 		Progress: cmd.ErrOrStderr(),
-		Data:     data, Rescore: o.rescore, KnownBad: o.bad,
+		Data:     data, Rescore: o.rescore, Lists: o.lists,
 	})
 	if err != nil {
 		return err

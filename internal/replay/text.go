@@ -26,7 +26,7 @@ func (r *Report) Text(target float64) string {
 	r.textProbe(&b)
 	r.textPerturb(&b)
 	r.textShadow(&b)
-	r.textKnownBad(&b)
+	r.textListed(&b)
 	r.textReview(&b)
 	return b.String()
 }
@@ -142,42 +142,49 @@ func (r *Report) textShadow(b *textWriter) {
 	}
 }
 
-// textKnownBad counts verdicts per kind and names every approved PR, since
-// approving a known-bad PR is the failure that matters.
-func (r *Report) textKnownBad(b *textWriter) {
-	if len(r.KnownBad) == 0 {
+// textListed counts verdicts per label and kind. It names every approved
+// known-bad PR, the failure that matters most, and counts known-good PRs a
+// cap question held.
+func (r *Report) textListed(b *textWriter) {
+	if len(r.Listed) == 0 {
 		return
 	}
-	type tally struct{ approve, deny, human, failed int }
-	byKind := map[string]*tally{}
-	var kinds, approved []string
-	for _, kb := range r.KnownBad {
-		t := byKind[kb.Kind]
+	type tally struct{ approve, deny, human, failed, capped int }
+	byGroup := map[string]*tally{}
+	var groups, approved []string
+	for _, l := range r.Listed {
+		g := string(l.Label) + " " + l.Kind
+		t := byGroup[g]
 		if t == nil {
 			t = &tally{}
-			byKind[kb.Kind] = t
-			kinds = append(kinds, kb.Kind)
+			byGroup[g] = t
+			groups = append(groups, g)
+		}
+		if slices.Contains(l.Caps, string(verdict.CapQuestion)) {
+			t.capped++
 		}
 		switch {
-		case kb.Err != nil:
+		case l.Err != nil:
 			t.failed++
-		case kb.Verdict == string(verdict.Approve):
+		case l.Verdict == string(verdict.Approve):
 			t.approve++
-			approved = append(approved, kb.Ref)
-		case kb.Verdict == string(verdict.Deny):
+			if l.Label == Negative {
+				approved = append(approved, l.Ref)
+			}
+		case l.Verdict == string(verdict.Deny):
 			t.deny++
 		default:
 			t.human++
 		}
 	}
-	slices.Sort(kinds)
-	b.w("\nKnown-bad PRs: %d scored, %d approved", len(r.KnownBad), len(approved))
-	for _, k := range kinds {
-		t := byKind[k]
-		b.w("  %-12s %d deny · %d needs-human · %d approve · %d not scored", k, t.deny, t.human, t.approve, t.failed)
+	slices.Sort(groups)
+	b.w("\nListed PRs, outside the fit: %d scored, %d known-bad approved", len(r.Listed), len(approved))
+	for _, g := range groups {
+		t := byGroup[g]
+		b.w("  %-22s %d approve · %d needs-human · %d deny · %d not scored · %d held by a cap question", g, t.approve, t.human, t.deny, t.failed, t.capped)
 	}
 	for _, ref := range approved {
-		b.w("  approved: %s", clean(ref))
+		b.w("  approved known-bad: %s", clean(ref))
 	}
 }
 

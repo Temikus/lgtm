@@ -109,7 +109,7 @@ The [local dataset](../README.md#calibrating) keeps these runs, so a rerun with 
 lgtm data pull kubernetes-sigs/cluster-api --labels maintainer --since 60d --max-prs 200
 lgtm data pull --list docs/known-bad-prs.txt
 lgtm replay kubernetes-sigs/cluster-api --labels maintainer --since 60d --max-prs 200 \
-  --offline --known-bad --config docs/calibration-reworded.toml
+  --offline --lists --config docs/calibration-reworded.toml
 ```
 
 Scores from every run can be compared in DuckDB:

@@ -39,8 +39,8 @@ type PR struct {
 }
 
 // Label is a human outcome for a PR under one labelling mode. Source is
-// "history" for labels read from the repo and "list" for a known-bad list,
-// whose Kind says what sort of bad (attack, injection, spam).
+// "history" for labels read from the repo and "list" for a hand-made list
+// of known-bad or known-good PRs, whose Kind says what sort (attack, spam).
 type Label struct {
 	Repo       string    `parquet:"repo,dict"`
 	Number     int64     `parquet:"number"`
@@ -117,7 +117,7 @@ func Time(t time.Time) *time.Time {
 // Label sources.
 const (
 	SourceHistory = "history" // labelled from the repo's own history
-	SourceList    = "list"    // from a known-bad list
+	SourceList    = "list"    // from a known-bad or known-good list
 )
 
 func prKey(repo string, n int64) string { return repo + "#" + strconv.FormatInt(n, 10) }

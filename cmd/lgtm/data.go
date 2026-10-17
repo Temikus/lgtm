@@ -73,21 +73,22 @@ func newDataDirCmd() *cobra.Command {
 }
 
 type pullOpts struct {
-	data                dataOpts
-	since, labels, list string
-	maxPRs              int
+	data                       dataOpts
+	since, labels, list, label string
+	maxPRs                     int
 }
 
 func newDataPullCmd() *cobra.Command {
 	var o pullOpts
 	cmd := &cobra.Command{
 		Use:   "pull [<owner/repo>]",
-		Short: "Store a repo's labelled history, or a known-bad list, without calling the model",
+		Short: "Store a repo's labelled history, or a list of PRs, without calling the model",
 		Long: "pull reads closed PRs the way replay does and stores their labels, diffs, and\n" +
 			"author checks, so `lgtm replay --offline` needs no GitHub calls. PRs already\n" +
 			"stored are not read again.\n\n" +
-			"With --list, it stores the PRs in a known-bad list instead (lines of\n" +
-			"\"<kind> <owner/repo#N>\"), which `lgtm replay --known-bad` scores.",
+			"With --list, it stores the PRs in a list instead (lines of\n" +
+			"\"<kind> <owner/repo#N>\"), labelled --label: negative for known-bad PRs,\n" +
+			"positive for known-good ones. `lgtm replay --lists` scores them.",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error { return o.run(cmd, args) },
 	}
@@ -95,7 +96,8 @@ func newDataPullCmd() *cobra.Command {
 	f.StringVar(&o.since, "since", "90d", "how far back to read closed PRs")
 	f.IntVar(&o.maxPRs, "max-prs", 300, "most PRs to read")
 	f.StringVar(&o.labels, "labels", string(replay.Strict), "strict, maintainer, or merged (see lgtm replay --help)")
-	f.StringVar(&o.list, "list", "", "known-bad list to store instead of a repo's history")
+	f.StringVar(&o.list, "list", "", "list of PRs to store instead of a repo's history")
+	f.StringVar(&o.label, "label", string(replay.Negative), "label for --list PRs: negative (known-bad) or positive (known-good)")
 	o.data.flags(f)
 	return cmd
 }
@@ -141,7 +143,7 @@ func (o pullOpts) pullList(cmd *cobra.Command, gh *github.Client, data replay.Da
 	if err != nil {
 		return replay.PullStats{}, fmt.Errorf("%s: %w", o.list, err)
 	}
-	return replay.PullList(cmd.Context(), gh, data, entries)
+	return replay.PullList(cmd.Context(), gh, data, entries, replay.Label(o.label))
 }
 
 func (o pullOpts) pullRepo(cmd *cobra.Command, gh *github.Client, data replay.Data, ref string) (replay.PullStats, error) {

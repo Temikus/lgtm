@@ -73,7 +73,7 @@ lgtm replay owner/repo --dry-run           # label history and estimate cost; no
 lgtm replay owner/repo --perturb           # score labelled PRs and report
 lgtm replay owner/repo --write             # also store [calibration] in .github/lgtm.toml
 lgtm replay owner/repo --offline           # rerun from the local dataset: no GitHub calls
-lgtm data pull --list docs/known-bad-prs.txt && lgtm replay owner/repo --known-bad
+lgtm data pull --list docs/known-bad-prs.txt && lgtm replay owner/repo --lists
 ```
 
 Replay labels closed PRs from history. By default a PR approved by someone with write access and then merged is positive, and one closed after a changes-requested review, or reverted within 14 days, is negative. Few repos close PRs after a formal changes-requested review, so strict negatives are rare. `--labels maintainer` adds Prow's `lgtm` label as an approval and counts a PR closed unmerged by someone other than its author (directly, or through a bot after their `/close`) as negative; stale closures and authors closing their own PRs stay unlabelled. It works on repos like kubernetes. For a repo with one maintainer and no reviews, `--labels merged` counts merged PRs as positive and closed ones as negative, skipping bots. These labels are weaker, because they record what shipped rather than what a reviewer judged.

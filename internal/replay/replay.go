@@ -40,8 +40,9 @@ type Options struct {
 	Data Data
 	// Rescore asks the model even when the dataset has its answer.
 	Rescore bool
-	// KnownBad also scores the dataset's known-bad PRs, outside the fit.
-	KnownBad bool
+	// Lists also scores the dataset's listed PRs (known-bad and
+	// known-good), outside the fit.
+	Lists bool
 }
 
 // Report is everything replay found.
@@ -63,7 +64,7 @@ type Report struct {
 	Baseline    *FlipRate
 	Edits       []FlipRate
 	Shadow      *Shadow
-	KnownBad    []KnownBad
+	Listed      []Listed
 	CostUSD     float64
 	// Calibration is what --write stores, or nil with WhyNot saying why not.
 	Calibration *config.Calibration
@@ -83,8 +84,8 @@ func Run(ctx context.Context, gh *github.Client, o Options) (rep *Report, err er
 		// Keep what was read even when the run fails or stops early.
 		defer func() { err = errors.Join(err, st.Flush()) }()
 	}
-	if o.KnownBad && o.Data.Store == nil {
-		return nil, errors.New("known-bad PRs come from the local dataset, which is off")
+	if o.Lists && o.Data.Store == nil {
+		return nil, errors.New("listed PRs come from the local dataset, which is off")
 	}
 	budget := &Budget{Decider: o.Decider, LimitUSD: o.BudgetUSD}
 	cfg := replayConfig(o.Config)
@@ -126,8 +127,8 @@ func Run(ctx context.Context, gh *github.Client, o Options) (rep *Report, err er
 	if err := o.extras(ctx, gh, eo, budget, rep, labelled); err != nil {
 		return nil, err
 	}
-	if o.KnownBad && !rep.BudgetHit {
-		o.scoreKnownBad(ctx, gh, eo, rep, runID, hash)
+	if o.Lists && !rep.BudgetHit {
+		o.scoreListed(ctx, gh, eo, rep, runID, hash)
 	}
 	rep.CostUSD = budget.Spent()
 	rep.Calibration, rep.WhyNot = calibration(rep, o.Now())
@@ -275,11 +276,11 @@ func (o Options) cached(d jev.Decider) jev.Decider {
 	return &dataset.Cache{Decider: d, Store: o.Data.Store, Rescore: o.Rescore}
 }
 
-func (o Options) scoreKnownBad(ctx context.Context, gh *github.Client, eo engine.Options, rep *Report, runID, hash string) {
-	ss, kinds := o.Data.knownBad()
-	o.progress("scoring %d known-bad PRs", len(ss))
+func (o Options) scoreListed(ctx context.Context, gh *github.Client, eo engine.Options, rep *Report, runID, hash string) {
+	ss, kinds := o.Data.listed()
+	o.progress("scoring %d listed PRs", len(ss))
 	rs := o.scoreAll(ctx, gh, eo, ss)
-	rep.KnownBad = knownBadResults(ss, kinds, rs)
+	rep.Listed = listedResults(ss, kinds, rs)
 	o.Data.Store.AddScores(scoreRows(runID, hash, dataset.SourceList, ss, kinds, rs))
 }
 
@@ -296,13 +297,13 @@ func fetchSnapshot(ctx context.Context, gh *github.Client, eo engine.Options, pr
 	return raw.Snapshot(eo.Config.Exclude)
 }
 
-func knownBadResults(ss []Sample, kinds []string, rs []*engine.Result) []KnownBad {
-	var out []KnownBad
+func listedResults(ss []Sample, kinds []string, rs []*engine.Result) []Listed {
+	var out []Listed
 	for i, r := range rs {
 		if r == nil {
 			continue
 		}
-		kb := KnownBad{Ref: fmt.Sprintf("%s/%s#%d", ss[i].PR.Owner, ss[i].PR.Repo, ss[i].PR.Number), Kind: kinds[i], Verdict: string(r.Verdict.Verdict), Err: r.Verdict.Failure}
+		kb := Listed{Ref: fmt.Sprintf("%s/%s#%d", ss[i].PR.Owner, ss[i].PR.Repo, ss[i].PR.Number), Kind: kinds[i], Label: ss[i].Label, Verdict: string(r.Verdict.Verdict), Err: r.Verdict.Failure}
 		for _, c := range r.Verdict.Caps {
 			kb.Caps = append(kb.Caps, string(c))
 		}

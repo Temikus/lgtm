@@ -160,7 +160,7 @@ func TestHistory_RelabelsRecentlyClosed(t *testing.T) {
 	}
 }
 
-func TestRun_KnownBad(t *testing.T) {
+func TestRun_Lists(t *testing.T) {
 	gh := replayServer(t)
 	dir := t.TempDir()
 	st := storeAt(t, dir)
@@ -170,24 +170,24 @@ func TestRun_KnownBad(t *testing.T) {
 	st.PutLabel(dataset.Label{Repo: "x/y", Number: 4, HeadSHA: "h", Mode: dataset.SourceList, Label: "negative", Source: dataset.SourceList, Kind: "attack"})
 
 	o := runOpts(t, &judge{snapshots: []string{"20260917"}})
-	o.Perturb, o.KnownBad, o.Data = false, true, Data{Store: st}
+	o.Perturb, o.Lists, o.Data = false, true, Data{Store: st}
 	rep, err := Run(context.Background(), gh.Client, o)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rep.KnownBad) != 1 || rep.KnownBad[0].Kind != "attack" || rep.KnownBad[0].Verdict != "deny" {
-		t.Fatalf("known-bad = %+v", rep.KnownBad)
+	if len(rep.Listed) != 1 || rep.Listed[0].Kind != "attack" || rep.Listed[0].Label != Negative || rep.Listed[0].Verdict != "deny" {
+		t.Fatalf("listed = %+v", rep.Listed)
 	}
 	if len(rep.Points) != 12 {
 		t.Errorf("known-bad PRs joined the fit: %d points", len(rep.Points))
 	}
-	if !strings.Contains(rep.Text(0.95), "Known-bad PRs: 1 scored, 0 approved") {
+	if !strings.Contains(rep.Text(0.95), "Listed PRs, outside the fit: 1 scored, 0 known-bad approved") {
 		t.Errorf("text:\n%s", rep.Text(0.95))
 	}
 
 	o.Data = Data{}
 	if _, err := Run(context.Background(), gh.Client, o); err == nil {
-		t.Error("known-bad without a dataset should fail")
+		t.Error("lists without a dataset should fail")
 	}
 }
 

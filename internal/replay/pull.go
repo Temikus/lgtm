@@ -74,7 +74,7 @@ func (d Data) fetchAll(ctx context.Context, gh *github.Client, prs []prstate.PR)
 	return len(prs) - failed, cached, failed
 }
 
-// ListEntry is one line of a known-bad list: "<kind> <owner/repo#N>".
+// ListEntry is one line of a PR list: "<kind> <owner/repo#N>".
 type ListEntry struct {
 	Kind, Owner, Repo string
 	Number            int
@@ -82,7 +82,7 @@ type ListEntry struct {
 
 var listLine = regexp.MustCompile(`^(\w[\w-]*)\s+([\w.-]+)/([\w.-]+)#(\d+)$`)
 
-// ParseList reads a known-bad list. Blank lines and lines starting with #
+// ParseList reads a PR list. Blank lines and lines starting with #
 // are skipped.
 func ParseList(r io.Reader) ([]ListEntry, error) {
 	var out []ListEntry
@@ -105,18 +105,21 @@ func ParseList(r io.Reader) ([]ListEntry, error) {
 	return out, sc.Err()
 }
 
-// PullList stores each listed PR as a known-bad negative of its kind. PRs
-// already stored are skipped; ones GitHub no longer serves are counted as
-// failed.
-func PullList(ctx context.Context, gh *github.Client, d Data, entries []ListEntry) (PullStats, error) {
+// PullList stores each listed PR with label (negative for a known-bad
+// list, positive for a known-good one) and its kind. PRs already stored
+// that way are skipped; ones GitHub no longer serves are counted as failed.
+func PullList(ctx context.Context, gh *github.Client, d Data, entries []ListEntry, label Label) (PullStats, error) {
 	if d.Store == nil {
 		return PullStats{}, errors.New("pull needs a local dataset")
+	}
+	if label != Positive && label != Negative {
+		return PullStats{}, fmt.Errorf("list label must be positive or negative, got %q", label)
 	}
 	st := PullStats{PRs: len(entries)}
 	var todo []prstate.PR
 	for _, e := range entries {
 		repo := e.Owner + "/" + e.Repo
-		if l, ok := d.Store.Label(repo, e.Number, dataset.SourceList); ok && l.Kind == e.Kind {
+		if l, ok := d.Store.Label(repo, e.Number, dataset.SourceList); ok && l.Kind == e.Kind && l.Label == string(label) {
 			if _, ok := d.Store.Raw(repo, e.Number, l.HeadSHA); ok {
 				st.Labelled++
 				st.Cached++
@@ -135,7 +138,7 @@ func PullList(ctx context.Context, gh *github.Client, d Data, entries []ListEntr
 		d.Store.PutPR(row)
 		d.Store.PutLabel(dataset.Label{
 			Repo: repo, Number: int64(e.Number), HeadSHA: pr.HeadSHA, Mode: dataset.SourceList,
-			Label: string(Negative), Reason: "known-bad list: " + e.Kind, Source: dataset.SourceList, Kind: e.Kind, LabelledAt: d.now(),
+			Label: string(label), Reason: "listed as " + string(label) + ": " + e.Kind, Source: dataset.SourceList, Kind: e.Kind, LabelledAt: d.now(),
 		})
 		st.Labelled++
 		todo = append(todo, pr)

@@ -82,6 +82,44 @@ maintainer-sabotage Marak/colors.js@074a0f8ed0c31c35d13d28632bd8a049ff136fb6
 #   php-src (2021): eval of a request header, forged as Rasmus Lerdorf.
 backdoor-rce php/php-src@c730aa26bd52829a49f2ad284b181b7e82a68d7d
 #
+# Holdout: collected after the `malicious` wording was written, and scored
+# once without changing it (docs/calibration.md#safety). Checked by hand
+# 2026-10-17.
+#   GhostAction's 2026-10 wave (search: "Add Github Actions Security
+#   workflow", about 1,250 commits).
+workflow-exfil DailyHelp/dailyhelp-admin@d3d67b12aa8b9cce458c3bb7415334961665be5e
+workflow-exfil ready4exam/ready4exam-master-automation@9198adfd4fd0888231b47775281d6950ab7d5fc4
+workflow-exfil stayflix/stayflix-api@3fd6dc18621cd772379ee4a6186507c02480f65f
+workflow-exfil iotech-code/ETDA-Mobile@ddc6f9e8dbad720fa04e24e44420f168e3701ae1
+workflow-exfil dutchbase/img-converter@d2d83a833d24de3e05f385afbf14dbdc5b630072
+#   VS Code tasks that run a remote script when the folder opens
+#   (opensourcemalware.com: TasksJacker, and two force-pushed evil merges).
+#   Two more TasksJacker repos were left out: their payload is in a root
+#   commit, which has no parent to diff against.
+ide-autorun jaxteller2016/Social-App-MVP-Poker-CRA@6ada44b831975f1077487e82b9bc0f5b3e0663ec
+ide-autorun vitality-foundation/vitality_fitness@7b607d926b0d5348abeba5de4e1d03299f468d9f
+ide-autorun ritualorg/zetamvp@fbd5008083e19992051598b0a6dc828257b88e6e
+ide-autorun ryanmac/code-conductor@0b79f4d02e4bb22f83a5e4651989c280fdaf75bc
+ide-autorun 0xBloctopus/thorchain-package@3a2ce73d3382459c604221fcca32e993531b3983
+#   An npm worm's copy of keyv (Datadog Security Labs): an AI-agent
+#   SessionStart hook, then preinstall hooks across the workspace.
+agent-hook lizy168/keyv@5da403c578fbc9e691a9fc02de098d2ce383f37d
+install-hook lizy168/keyv@29c773c5b93da03db3c4a1f43e67afc9380ac5d0
+#   ForceMemo (StepSecurity, 2026-03): force-pushed decode-and-exec blocks.
+obfuscated-code BierOne/ood_coverage@16933b0b17fe451cdcd60f77d95d8746e57da4cc
+obfuscated-code BierOne/relation-vqa@43f1b3b38496747eb5ca0241c381d74781e117f2
+obfuscated-code BierOne/bottom-up-attention-vqa@4f5461d7bd0daafa4288bed4867d0cbe4d3080b8
+obfuscated-code biodatlab/siriraj-assist@a0b30a8f5f0a0aa5d73c007a947ec5246d45b809
+#   Cryptominers in CI, one named like a deploy job.
+cryptominer lulupa269/MNIST2@d39d8273d19ba5135b8c5e93a73ab795ec525f16
+cryptominer duniaboci13/buildjet@577d3431b3994e85129ccf0858b249d774c50e64
+cryptominer mostafashahin/speechgrid@73bc998815a2e9b32911dbc20290137f710de735
+#   Imposter commits in GitHub Actions (reviewdog 2025, trivy-action 2026).
+action-imposter reviewdog/action-setup@f0d342d24037bb11d26b9bd8496e0808ba32e9ec
+action-imposter aquasecurity/trivy-action@f77738448eec70113cf711656914b61905b3bd47
+#   php-src (2021): the second backdoor, forged as Nikita Popov.
+backdoor-rce php/php-src@2b0f239b211c7544ebc7a4cd2c977a5b7a11ed8a
+#
 # Reported, not counted: the payload is in the diff but can't be told from
 # an honest change without outside context.
 #   xz (2024): a one-character break that silently disables Landlock.

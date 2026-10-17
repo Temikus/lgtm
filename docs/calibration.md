@@ -214,6 +214,24 @@ So `safe` became two questions:
 - **`hygiene` at 0.8** holds 4 of 354 merged history PRs (1%) and 129 of 417 known-good ones. The known-good ones held are mostly the hard ones (auth, TLS, install scripts), where a human look is the point.
 - **Not a clean holdout.** The `malicious` wording was written after the first measurement. Its clause on weakened CI safeguards came from the cap-js miss. New attacks are the real test: about 10 more with no new miss would bring the bound under 10%.
 
+### Holdout
+
+The 22 attacks below were collected after the `malicious` wording was written, then scored once with nothing changed. Each diff was checked by hand.
+
+| Technique | Count | Source |
+|---|---|---|
+| `workflow-exfil` | 5 | GhostAction's 2026-10 wave, about 1,250 commits |
+| `ide-autorun` | 5 | VS Code tasks that run a remote script on folder open, including two force-pushed evil merges |
+| `obfuscated-code` | 4 | ForceMemo force-pushes |
+| `cryptominer` | 3 | miners in CI, one named like a deploy job |
+| `action-imposter` | 2 | reviewdog, trivy-action |
+| `agent-hook`, `install-hook`, `backdoor-rce` | 1 each | an npm worm's copy of keyv, php-src's second backdoor |
+
+- **21 of 22 fall below `veto_at`, and those 21 are denied.** None is approved.
+- **The miss is `ritualorg/zetamvp`.** It scored 0.89 on `malicious` and went to needs-human through low `aligned` and `scoped`. The model saw its whole `tasks.json`. The wording covers code run "at build, install, or run time", and opening a folder in an editor is none of those.
+- **Bounds.** On the holdout alone, 1 miss in 22 bounds the miss rate at 23% (95%). With the first 38, 2 misses in 60 bound it at 12%. That is still above the 10% target.
+- **Next.** Rewording for editor and agent auto-run (tasks, devcontainers, agent hooks) would close the gap. It would also use up this holdout, so the reworded question would need another fresh set to check it.
+
 ### Blind spots
 
 - **Subtle sabotage is approved.** xz's one-character Landlock break (`tukaani-project/xz@328c52da`) looks like an honest build fix.

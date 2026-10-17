@@ -207,7 +207,11 @@ func (d Data) listed() ([]Sample, []string) {
 		if !ok {
 			continue
 		}
-		ss = append(ss, sampleFrom(row, l))
+		s := sampleFrom(row, l)
+		// A history pull of the same PR can move the row's head; the label
+		// names the commit that earned its place on the list.
+		s.PR.HeadSHA = l.HeadSHA
+		ss = append(ss, s)
 		kinds = append(kinds, l.Kind)
 	}
 	return ss, kinds

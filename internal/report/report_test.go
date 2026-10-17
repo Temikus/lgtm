@@ -23,7 +23,7 @@ func result(mode config.Mode, v verdict.Result) *engine.Result {
 		PR:        prstate.PR{Owner: "o", Repo: "r", Number: 7, HeadSHA: "0123456789abcdef"},
 		Mode:      mode,
 		Model:     "typesafe/jev-1.13",
-		ApproveAt: 0.9, DenyAt: 0.1,
+		ApproveAt: 0.9, DenyAt: 0.1, VetoAt: 0.3,
 		Verdict: v,
 		Usage:   jev.Usage{InputTokens: 4210}, CostUSD: 0.00018, Calls: 2,
 		Excluded: []prstate.File{{Path: "go.sum", Additions: 12, Deletions: 3}},
@@ -43,6 +43,17 @@ func result(mode config.Mode, v verdict.Result) *engine.Result {
 		}
 		qr.Answer = &a
 		r.Questions = append(r.Questions, qr)
+	}
+	return r
+}
+
+// vetoed is a PR whose malicious answer is below veto_at but above deny_at.
+func vetoed() *engine.Result {
+	r := result(config.Enforce, verdict.Result{Verdict: verdict.Deny, Raw: verdict.NeedsHuman, Aggregate: 0.12, Vetoed: "malicious"})
+	for i := range r.Questions {
+		if r.Questions[i].ID == "malicious" {
+			r.Questions[i].Value = 0.12
+		}
 	}
 	return r
 }
@@ -70,6 +81,7 @@ func TestComment_Golden(t *testing.T) {
 		"enforce_approve":    result(config.Enforce, verdict.Result{Verdict: verdict.Approve, Raw: verdict.Approve, Aggregate: 0.97}),
 		"enforce_capped":     result(config.Enforce, verdict.Result{Verdict: verdict.NeedsHuman, Raw: verdict.Approve, Aggregate: 0.97, Caps: []verdict.CapKind{verdict.PartialView, verdict.UntrustedAuthor}}),
 		"enforce_failure":    result(config.Enforce, verdict.Result{Verdict: verdict.NeedsHuman, Raw: verdict.NeedsHuman, Failure: errors.New("decision API: HTTP 529: overloaded")}),
+		"enforce_vetoed":     vetoed(),
 	}
 	for name, r := range tests {
 		t.Run(name, func(t *testing.T) { golden(t, name, Comment(r)) })
@@ -178,5 +190,15 @@ func TestJSON(t *testing.T) {
 		if !strings.Contains(string(b), want) {
 			t.Errorf("JSON missing %s", want)
 		}
+	}
+}
+
+// Caps only hold approve, so on a deny they read as extra context.
+func TestComment_CapsOnDeny(t *testing.T) {
+	r := vetoed()
+	r.Verdict.Caps = []verdict.CapKind{verdict.UntrustedAuthor}
+	c := Comment(r)
+	if strings.Contains(c, "Held at needs-human") || !strings.Contains(c, "Would also hold approve because:") {
+		t.Errorf("comment:\n%s", c)
 	}
 }

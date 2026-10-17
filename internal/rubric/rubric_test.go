@@ -29,7 +29,8 @@ func TestDefaults_MatchPRDTable(t *testing.T) {
 	}{
 		"aligned":       {jev.Noul, Gate, Full},
 		"scoped":        {jev.Noul, Gate, Full},
-		"safe":          {jev.Noul, Gate, Diff},
+		"malicious":     {jev.Noul, Veto, Diff},
+		"hygiene":       {jev.Noul, Cap, Diff},
 		"tested":        {jev.Noul, Info, Diff},
 		"injection":     {jev.Noul, Cap, Full},
 		"described":     {jev.Noul, Info, Full},
@@ -67,9 +68,22 @@ func TestMerge_TestedCanGateAgain(t *testing.T) {
 	}
 }
 
+func TestMerge_Veto(t *testing.T) {
+	qs, err := Merge(Defaults(), map[string]Override{"described": {Veto: ptr(true)}, "malicious": {Veto: ptr(false)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if q := byID(t, qs, "described"); q.Role != Veto || !q.Role.Gating() {
+		t.Errorf("described role = %s, want veto", q.Role)
+	}
+	if q := byID(t, qs, "malicious"); q.Role != Info {
+		t.Errorf("malicious with veto = false: role %s, want info", q.Role)
+	}
+}
+
 func TestDefaults_DiffLocalSet(t *testing.T) {
 	for _, q := range Defaults() {
-		want := q.ID == "safe" || q.ID == "scoped" || q.ID == "injection"
+		want := q.ID == "malicious" || q.ID == "hygiene" || q.ID == "scoped" || q.ID == "injection"
 		if q.DiffLocal != want {
 			t.Errorf("%s DiffLocal = %v, want %v", q.ID, q.DiffLocal, want)
 		}
@@ -80,7 +94,8 @@ func TestMerge(t *testing.T) {
 	qs, err := Merge(Defaults(), map[string]Override{
 		"described": {Gate: ptr(true)},
 		"tested":    {Enabled: ptr(false)},
-		"safe":      {Instructions: ptr("Custom safe text.")},
+		"malicious": {Instructions: ptr("Custom text.")},
+		"hygiene":   {CapAt: ptr(0.6)},
 		"migration_safe": {
 			Type:         ptr("noul"),
 			Gate:         ptr(true),
@@ -98,8 +113,11 @@ func TestMerge(t *testing.T) {
 			t.Error("disabled question still present")
 		}
 	}
-	if q := byID(t, qs, "safe"); q.Instructions != "Custom safe text." || q.Context != Diff {
-		t.Errorf("safe = %+v; override should keep other fields", q)
+	if q := byID(t, qs, "malicious"); q.Instructions != "Custom text." || q.Context != Diff {
+		t.Errorf("malicious = %+v; override should keep other fields", q)
+	}
+	if q := byID(t, qs, "hygiene"); q.CapAt != 0.6 {
+		t.Errorf("hygiene cap_at = %v, want 0.6", q.CapAt)
 	}
 	if q := byID(t, qs, "migration_safe"); q.Role != Gate || q.Context != Full || q.Type != jev.Noul {
 		t.Errorf("migration_safe = %+v", q)
@@ -114,6 +132,8 @@ func TestMerge_Errors(t *testing.T) {
 		"new without type":     {"x": {Instructions: ptr("x?")}},
 		"new without text":     {"x": {Type: ptr("noul")}},
 		"gate and cap":         {"described": {Gate: ptr(true), Cap: ptr(true)}},
+		"veto and gate":        {"described": {Veto: ptr(true), Gate: ptr(true)}},
+		"cap_at at one":        {"hygiene": {CapAt: ptr(1.0)}},
 		"bad context":          {"described": {Context: ptr("everything")}},
 		"bad type":             {"x": {Type: ptr("maybe"), Instructions: ptr("x?")}},
 		"choice gate no pass":  {"risk": {Gate: ptr(true), Pass: []string{}}},

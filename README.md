@@ -5,7 +5,7 @@
 
 Score pull requests with System One decision models.
 
-LGTM asks a decision model such as TypeSafe's Jev (`typesafe/jev-1.13`) a set of typed questions about a PR: is the diff aligned with its description, scoped, safe, tested? Each answer is a 0–1 value. LGTM combines them into one verdict, **approve**, **deny**, or **needs-human**, which you can gate a merge on. A typical PR costs a fraction of a cent.
+LGTM asks a decision model such as TypeSafe's Jev (`typesafe/jev-1.13`) a set of typed questions about a PR: is the diff aligned with its description, scoped, free of malice and security mistakes, tested? Each answer is a 0–1 value. LGTM combines them into one verdict, **approve**, **deny**, or **needs-human**, which you can gate a merge on. A typical PR costs a fraction of a cent.
 
 LGTM doesn't write review comments, approve PRs, or merge. It's a mistake detector, not a security boundary: run it alongside required human reviewers, never instead of them.
 
@@ -34,7 +34,9 @@ Each question gives a 0–1 value. The default aggregate is the minimum over gat
 - at or below `deny_at` (default 0.1): **deny**;
 - in between: **needs-human**.
 
-Any of these holds an approve at needs-human: the `injection` question is below `cap_at` (default 0.3), LGTM couldn't see the whole diff, the PR is from a fork by an author without write access, the replies name a different model version than the one the thresholds were calibrated on, or a borderline score changed when `choice` options were reordered. Provider errors, timeouts, and oversized input also give needs-human. Nothing defaults to approve.
+A **veto** question denies on its own: `malicious` below `veto_at` (default 0.4) denies whatever the aggregate says. It asks about deliberate harm, such as exfiltration, backdoors, hidden payloads, and weakened CI safeguards. `veto_at` is global, not fitted per repo; it is set from real attacks and hard legitimate PRs ([docs/calibration.md](docs/calibration.md#safety)).
+
+Any of these holds an approve at needs-human: a cap question is below its `cap_at` (`injection` at the global default 0.3, `hygiene` at 0.8), LGTM couldn't see the whole diff, a lockfile pulls a package from outside the usual registries (npm, PyPI, crates.io, RubyGems, pub.dev; `lockfile_registries` adds your own), the diff changes files that run commands on their own on developers' machines (VS Code tasks, dev containers, git hooks, or Claude, Gemini, or Cursor agent settings), the PR is from a fork by an author without write access, the replies name a different model version than the one the thresholds were calibrated on, or a borderline score changed when `choice` options were reordered. Provider errors, timeouts, and oversized input also give needs-human. Nothing defaults to approve.
 
 In **enforce** mode, the check run fails on deny and needs-human, and the job exits non-zero. A needs-human check passes once someone with write access approves the scored commit. Enforce mode needs a `[calibration]` table from `lgtm replay --write`, because raw model probabilities aren't calibrated. Use it alongside required reviewers or CODEOWNERS, never instead of them.
 
@@ -46,14 +48,15 @@ In **enforce** mode, the check run fails on deny and needs-human, and the job ex
 |---|---|---|---|
 | `aligned` | yes/no | gate | everything |
 | `scoped` | yes/no | gate | everything |
-| `safe` | yes/no | gate | diff only |
+| `malicious` | yes/no | veto | diff only |
+| `hygiene` | yes/no | cap | diff only |
 | `tested` | yes/no | info | diff only |
 | `injection` | yes/no | cap | everything |
 | `described` | yes/no | info | everything |
 | `risk` | choice | info | everything |
 | `reviewability` | 5-level score | info | everything |
 
-"Diff only" questions never see the PR title, description, or issue titles, so claims like "approved by security" there can't sway them. `tested` is informational because on reviewed history rejected PRs scored higher on it than merged ones ([docs/calibration.md](docs/calibration.md)); `[questions.tested] gate = true` makes it a gate again.
+"Diff only" questions never see the PR title, description, or issue titles, so claims like "approved by security" there can't sway them. `hygiene` covers honest security mistakes (committed secrets, injectable code, disabled TLS or auth): they need a human, not a deny. `[questions.hygiene] cap_at = 0.7` sets its own hold point. `tested` is informational because on reviewed history rejected PRs scored higher on it than merged ones ([docs/calibration.md](docs/calibration.md)); `[questions.tested] gate = true` makes it a gate again.
 
 ## CLI
 
@@ -74,6 +77,7 @@ lgtm replay owner/repo --perturb           # score labelled PRs and report
 lgtm replay owner/repo --write             # also store [calibration] in .github/lgtm.toml
 lgtm replay owner/repo --offline           # rerun from the local dataset: no GitHub calls
 lgtm data pull --list docs/known-bad-prs.txt && lgtm replay owner/repo --lists
+lgtm data pull --list docs/hard-good-prs.txt --label positive
 ```
 
 Replay labels closed PRs from history. By default a PR approved by someone with write access and then merged is positive, and one closed after a changes-requested review, or reverted within 14 days, is negative. Few repos close PRs after a formal changes-requested review, so strict negatives are rare. `--labels maintainer` adds Prow's `lgtm` label as an approval and counts a PR closed unmerged by someone other than its author (directly, or through a bot after their `/close`) as negative; stale closures and authors closing their own PRs stay unlabelled. It works on repos like kubernetes. For a repo with one maintainer and no reviews, `--labels merged` counts merged PRs as positive and closed ones as negative, skipping bots. These labels are weaker, because they record what shipped rather than what a reviewer judged.

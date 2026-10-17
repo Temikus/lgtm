@@ -184,6 +184,9 @@ func TestRun_Lists(t *testing.T) {
 	if text := rep.Text(); !strings.Contains(text, "Cap sweep") || !strings.Contains(text, "known-bad caught: attack 1 of 1") {
 		t.Errorf("cap sweep missing:\n%s", text)
 	}
+	if text := rep.Text(); !strings.Contains(text, "Safety:") || !strings.Contains(text, "known-bad caught: attack 1 of 1 (miss ≤ 98%)") {
+		t.Errorf("safety section missing:\n%s", text)
+	}
 	if !strings.Contains(rep.Text(), "Listed PRs: 1 scored, 0 known-bad approved") {
 		t.Errorf("text:\n%s", rep.Text())
 	}
@@ -254,5 +257,17 @@ func TestTrusted_StoresForbiddenNotRateLimit(t *testing.T) {
 	data.Offline = true
 	if _, err := data.Trusted(nil)(context.Background(), eve); err == nil || len(gh.Requests()) != 0 {
 		t.Errorf("offline: err %v, requests %v", err, gh.Requests())
+	}
+}
+
+// A history pull of the same PR moves the row's head; the listed sample
+// keeps the commit its label names.
+func TestListed_KeepsPinnedHead(t *testing.T) {
+	st := storeAt(t, t.TempDir())
+	st.PutPR(dataset.FromPR(prstate.PR{Owner: "x", Repo: "y", Number: 4, HeadSHA: "cleaned"}))
+	st.PutLabel(dataset.Label{Repo: "x/y", Number: 4, HeadSHA: "attack", Mode: dataset.SourceList, Label: "negative", Source: dataset.SourceList, Kind: "workflow-exfil"})
+	ss, _ := Data{Store: st}.listed()
+	if len(ss) != 1 || ss[0].PR.HeadSHA != "attack" {
+		t.Errorf("listed = %+v", ss)
 	}
 }

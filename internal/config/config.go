@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"slices"
+	"strings"
 
 	"github.com/bmatcuk/doublestar/v4"
 	"github.com/google/go-github/v92/github"
@@ -51,6 +52,12 @@ var DefaultExclude = []string{
 // (docs/calibration.md).
 const DefaultCapAt = 0.3
 
+// DefaultVetoAt denies when a veto question scores below it, whatever the
+// aggregate. It is global, not fitted per repo: what makes a diff malicious
+// doesn't depend on the repo. It is the highest sweep value with no
+// legitimate PR below it; the lowest scored 0.43 (docs/calibration.md#safety).
+const DefaultVetoAt = 0.4
+
 // Calibration is written by `lgtm replay --write`.
 type Calibration struct {
 	Model            string         `toml:"model"`
@@ -67,36 +74,42 @@ type Calibration struct {
 
 // Config is a loaded, validated config with defaults filled in.
 type Config struct {
-	Provider          string
-	Model             string
-	Mode              Mode
-	ApproveAt         float64
-	DenyAt            float64
-	CapAt             float64
-	Aggregate         verdict.Aggregate
-	TrustForks        bool
-	Exclude           []string
-	BorderlineMargin  float64
-	AllowUncalibrated bool
-	Calibration       *Calibration
-	Rubric            []rubric.Question
+	Provider   string
+	Model      string
+	Mode       Mode
+	ApproveAt  float64
+	DenyAt     float64
+	CapAt      float64
+	VetoAt     float64
+	Aggregate  verdict.Aggregate
+	TrustForks bool
+	// LockfileRegistries are hosts, besides prstate.DefaultRegistries, that
+	// a lockfile may resolve packages from without holding the PR.
+	LockfileRegistries []string
+	Exclude            []string
+	BorderlineMargin   float64
+	AllowUncalibrated  bool
+	Calibration        *Calibration
+	Rubric             []rubric.Question
 }
 
 // file is the TOML shape. Pointers tell "unset" from zero.
 type file struct {
-	Provider          *string                    `toml:"provider"`
-	Model             *string                    `toml:"model"`
-	Mode              *string                    `toml:"mode"`
-	ApproveAt         *float64                   `toml:"approve_at"`
-	DenyAt            *float64                   `toml:"deny_at"`
-	CapAt             *float64                   `toml:"cap_at"`
-	Aggregate         *string                    `toml:"aggregate"`
-	TrustForks        *bool                      `toml:"trust_forks"`
-	Exclude           []string                   `toml:"exclude"`
-	BorderlineMargin  *float64                   `toml:"borderline_margin"`
-	AllowUncalibrated *bool                      `toml:"allow_uncalibrated"`
-	Calibration       *Calibration               `toml:"calibration"`
-	Questions         map[string]rubric.Override `toml:"questions"`
+	Provider           *string                    `toml:"provider"`
+	Model              *string                    `toml:"model"`
+	Mode               *string                    `toml:"mode"`
+	ApproveAt          *float64                   `toml:"approve_at"`
+	DenyAt             *float64                   `toml:"deny_at"`
+	CapAt              *float64                   `toml:"cap_at"`
+	VetoAt             *float64                   `toml:"veto_at"`
+	Aggregate          *string                    `toml:"aggregate"`
+	TrustForks         *bool                      `toml:"trust_forks"`
+	LockfileRegistries []string                   `toml:"lockfile_registries"`
+	Exclude            []string                   `toml:"exclude"`
+	BorderlineMargin   *float64                   `toml:"borderline_margin"`
+	AllowUncalibrated  *bool                      `toml:"allow_uncalibrated"`
+	Calibration        *Calibration               `toml:"calibration"`
+	Questions          map[string]rubric.Override `toml:"questions"`
 }
 
 // Load parses and validates config. Empty input gives the defaults.
@@ -123,18 +136,20 @@ func Load(data []byte) (*Config, error) {
 	}
 
 	c := &Config{
-		Provider:          deref(f.Provider, "openrouter"),
-		Model:             deref(f.Model, DefaultModel),
-		Mode:              Mode(deref(f.Mode, string(Shadow))),
-		ApproveAt:         deref(f.ApproveAt, 0.9),
-		DenyAt:            deref(f.DenyAt, 0.1),
-		CapAt:             deref(f.CapAt, DefaultCapAt),
-		Aggregate:         verdict.Aggregate(deref(f.Aggregate, string(verdict.Min))),
-		TrustForks:        deref(f.TrustForks, false),
-		Exclude:           f.Exclude,
-		BorderlineMargin:  deref(f.BorderlineMargin, 0.05),
-		AllowUncalibrated: deref(f.AllowUncalibrated, false),
-		Calibration:       f.Calibration,
+		Provider:           deref(f.Provider, "openrouter"),
+		Model:              deref(f.Model, DefaultModel),
+		Mode:               Mode(deref(f.Mode, string(Shadow))),
+		ApproveAt:          deref(f.ApproveAt, 0.9),
+		DenyAt:             deref(f.DenyAt, 0.1),
+		CapAt:              deref(f.CapAt, DefaultCapAt),
+		VetoAt:             deref(f.VetoAt, DefaultVetoAt),
+		Aggregate:          verdict.Aggregate(deref(f.Aggregate, string(verdict.Min))),
+		TrustForks:         deref(f.TrustForks, false),
+		LockfileRegistries: f.LockfileRegistries,
+		Exclude:            f.Exclude,
+		BorderlineMargin:   deref(f.BorderlineMargin, 0.05),
+		AllowUncalibrated:  deref(f.AllowUncalibrated, false),
+		Calibration:        f.Calibration,
 	}
 	if c.Exclude == nil {
 		c.Exclude = slices.Clone(DefaultExclude)
@@ -196,7 +211,7 @@ func (c *Config) Thresholds() (approveAt, denyAt float64) {
 // Policy is the verdict policy in effect.
 func (c *Config) Policy() verdict.Policy {
 	a, d := c.Thresholds()
-	return verdict.Policy{ApproveAt: a, DenyAt: d, CapAt: c.CapAt, Margin: c.BorderlineMargin, Aggregate: c.Aggregate}
+	return verdict.Policy{ApproveAt: a, DenyAt: d, CapAt: c.CapAt, VetoAt: c.VetoAt, Margin: c.BorderlineMargin, Aggregate: c.Aggregate}
 }
 
 // Snapshot is the dated model version the thresholds in effect were fitted
@@ -237,10 +252,25 @@ func (c *Config) validate() error {
 	if err := c.validateCalibration(); err != nil {
 		return err
 	}
-	if approve, _ := c.Thresholds(); !(0 < c.CapAt && c.CapAt < 1 && c.CapAt <= approve) {
-		return fmt.Errorf("need 0 < cap_at <= approve_at < 1, got cap_at=%v approve_at=%v", c.CapAt, approve)
+	if err := c.validateCuts(); err != nil {
+		return err
+	}
+	if err := validHosts(c.LockfileRegistries); err != nil {
+		return err
 	}
 	return c.validateRubric()
+}
+
+// validateCuts checks cap_at and veto_at against the approve_at in effect.
+func (c *Config) validateCuts() error {
+	approve, _ := c.Thresholds()
+	if !(0 < c.CapAt && c.CapAt < 1 && c.CapAt <= approve) {
+		return fmt.Errorf("need 0 < cap_at <= approve_at < 1, got cap_at=%v approve_at=%v", c.CapAt, approve)
+	}
+	if !(0 < c.VetoAt && c.VetoAt < approve) {
+		return fmt.Errorf("need 0 < veto_at < approve_at < 1, got veto_at=%v approve_at=%v", c.VetoAt, approve)
+	}
+	return nil
 }
 
 func validThresholds(approve, deny float64) error {
@@ -274,7 +304,7 @@ func (c *Config) validateRubric() error {
 	}
 	gates := 0
 	for _, q := range c.Rubric {
-		if q.Role == rubric.Gate {
+		if q.Role.Gating() {
 			gates++
 		}
 		if len(q.Instructions) > maxInstructionChars {
@@ -295,4 +325,15 @@ func deref[T any](p *T, def T) T {
 		return def
 	}
 	return *p
+}
+
+// validHosts rejects lockfile_registries entries that aren't bare host
+// names, which would otherwise silently never match.
+func validHosts(hosts []string) error {
+	for _, h := range hosts {
+		if h == "" || strings.ContainsAny(h, "/:@ ") {
+			return fmt.Errorf("lockfile_registries: %q must be a bare host name, such as npm.example.com", h)
+		}
+	}
+	return nil
 }

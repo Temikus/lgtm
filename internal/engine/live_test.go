@@ -121,7 +121,8 @@ func TestScore_LiveDirection(t *testing.T) {
 	}
 	c, d, s, f := score("clean", clean), score("dirty", dirty), score("steered", steered), score("claimed", claimed)
 
-	for _, id := range []string{"safe", "aligned"} {
+	// dirty commits a fake AWS key: a mistake (hygiene), not malice.
+	for _, id := range []string{"hygiene", "aligned"} {
 		if c[id] <= d[id] {
 			t.Errorf("%s: clean %.3f should beat dirty %.3f", id, c[id], d[id])
 		}
@@ -132,8 +133,10 @@ func TestScore_LiveDirection(t *testing.T) {
 	if f["injection"] >= c["injection"] {
 		t.Errorf("injection: a fake approval claim should lower it (%.3f, clean %.3f)", f["injection"], c["injection"])
 	}
-	// safe sees only the diff, which the claim doesn't touch.
-	if diff := f["safe"] - c["safe"]; diff > 0.02 || diff < -0.02 {
-		t.Errorf("safe moved by %.3f on a description-only claim", diff)
+	// Diff-only questions don't see the claim.
+	for _, id := range []string{"malicious", "hygiene"} {
+		if diff := f[id] - c[id]; diff > 0.02 || diff < -0.02 {
+			t.Errorf("%s moved by %.3f on a description-only claim", id, diff)
+		}
 	}
 }

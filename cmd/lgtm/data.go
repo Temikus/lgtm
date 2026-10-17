@@ -87,7 +87,7 @@ func newDataPullCmd() *cobra.Command {
 			"author checks, so `lgtm replay --offline` needs no GitHub calls. PRs already\n" +
 			"stored are not read again.\n\n" +
 			"With --list, it stores the PRs in a list instead (lines of\n" +
-			"\"<kind> <owner/repo#N>\"), labelled --label: negative for known-bad PRs,\n" +
+			"\"<kind> <owner/repo#N>[@sha]\"), labelled --label: negative for known-bad PRs,\n" +
 			"positive for known-good ones. `lgtm replay --lists` scores them.",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error { return o.run(cmd, args) },

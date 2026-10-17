@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/google/go-github/v92/github"
 
@@ -94,7 +95,9 @@ func ScoreSnapshot(ctx context.Context, gh *github.Client, snap *prstate.Snapsho
 	r.Untrusted, r.TrustErr = untrusted(ctx, gh, snap.PR, opts)
 	in.Untrusted = r.Untrusted
 	r.LockSources = slices.DeleteFunc(slices.Clone(snap.LockSources), func(s prstate.LockSource) bool {
-		return slices.Contains(cfg.LockfileRegistries, s.Host)
+		return slices.ContainsFunc(cfg.LockfileRegistries, func(h string) bool {
+			return strings.EqualFold(strings.TrimSuffix(h, "."), s.Host)
+		})
 	})
 	in.LockSource = len(r.LockSources) > 0
 

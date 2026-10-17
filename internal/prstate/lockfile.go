@@ -39,10 +39,11 @@ var DefaultRegistries = []string{
 	"index.crates.io", "static.crates.io", "rubygems.org", "pub.dev", "pub.dartlang.org",
 }
 
-// crates.io's git index is a registry, not a git dependency.
-const cratesIndex = "github.com/rust-lang/crates.io-index"
-
-var sourceURL = regexp.MustCompile(`(?:(?:registry|sparse|git)\+)?(?:https?|ssh|git)://[^\s"'#,}]+`)
+var (
+	sourceURL = regexp.MustCompile(`(?:(?:registry|sparse|git)\+)?(?:https?|ssh|git)://[^\s"'#,}]+`)
+	// scpSource is git's user@host:path form, which has no scheme.
+	scpSource = regexp.MustCompile(`\b[\w.-]+@([\w.-]+):[\w./~-]+`)
+)
 
 // maxLockSources bounds how many sources a report lists.
 const maxLockSources = 10
@@ -60,15 +61,12 @@ func lockSources(files []File) []LockSource {
 			if !strings.HasPrefix(line, "+") || strings.HasPrefix(line, "+++") || !key.MatchString(line[1:]) {
 				continue
 			}
-			for _, u := range sourceURL.FindAllString(line, -1) {
-				if strings.Contains(u, cratesIndex) {
+			for _, src := range sources(line) {
+				if allowed(f.Path, src) || slices.ContainsFunc(out, func(s LockSource) bool { return s.URL == src.URL }) {
 					continue
 				}
-				host := hostOf(u)
-				if slices.Contains(DefaultRegistries, host) || slices.ContainsFunc(out, func(s LockSource) bool { return s.URL == u }) {
-					continue
-				}
-				out = append(out, LockSource{Path: f.Path, URL: u, Host: host})
+				src.Path = f.Path
+				out = append(out, src)
 				if len(out) == maxLockSources {
 					return out
 				}
@@ -78,13 +76,46 @@ func lockSources(files []File) []LockSource {
 	return out
 }
 
-func hostOf(u string) string {
+// sources finds the remote sources on one lockfile line. Local paths have
+// no scheme and aren't sources: their files are in the diff.
+func sources(line string) []LockSource {
+	var out []LockSource
+	for _, u := range sourceURL.FindAllString(line, -1) {
+		out = append(out, LockSource{URL: u, Host: hostOf(u)})
+	}
+	for _, m := range scpSource.FindAllStringSubmatch(line, -1) {
+		out = append(out, LockSource{URL: m[0], Host: normHost(m[1])})
+	}
+	return out
+}
+
+// allowed is an https source on a default registry, or crates.io's own git
+// index in Cargo.lock. Anything unparseable is not allowed.
+func allowed(lockfile string, s LockSource) bool {
+	u, err := url.Parse(stripScheme(s.URL))
+	if err != nil || s.Host == "" {
+		return false
+	}
+	if path.Base(lockfile) == "Cargo.lock" && strings.HasPrefix(s.URL, "registry+") && u.Scheme == "https" &&
+		s.Host == "github.com" && strings.TrimSuffix(u.Path, ".git") == "/rust-lang/crates.io-index" && u.RawQuery == "" {
+		return true
+	}
+	return u.Scheme == "https" && slices.Contains(DefaultRegistries, s.Host)
+}
+
+func stripScheme(u string) string {
 	for _, p := range []string{"registry+", "sparse+", "git+"} {
 		u = strings.TrimPrefix(u, p)
 	}
-	parsed, err := url.Parse(u)
+	return u
+}
+
+func hostOf(u string) string {
+	parsed, err := url.Parse(stripScheme(u))
 	if err != nil {
 		return ""
 	}
-	return parsed.Hostname()
+	return normHost(parsed.Hostname())
 }
+
+func normHost(h string) string { return strings.TrimSuffix(strings.ToLower(h), ".") }

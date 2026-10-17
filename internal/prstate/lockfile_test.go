@@ -28,6 +28,31 @@ func TestLockSources(t *testing.T) {
 	}
 }
 
+// Lookalikes of an allowed source still hold.
+func TestLockSources_NoLookalikes(t *testing.T) {
+	for _, line := range []string{
+		`+source = "registry+https://evil.example/github.com/rust-lang/crates.io-index"`,
+		`+source = "registry+https://github.com/rust-lang/crates.io-index?x=1"`,
+		`+source = "git+https://github.com/rust-lang/crates.io-index"`,
+		`+source = "git+ssh://git@github.com/attacker/crate"`,
+		`+source = "git@github.com:attacker/crate.git"`,
+		`+source = "registry+http://index.crates.io/"`,
+	} {
+		if got := lockSources([]File{{Path: "Cargo.lock", Patch: line}}); len(got) == 0 {
+			t.Errorf("%s: not held", line)
+		}
+	}
+	for _, line := range []string{
+		`+source = "registry+https://github.com/rust-lang/crates.io-index"`,
+		`+source = "sparse+https://Index.Crates.IO./"`,
+		`+source = { editable = "." }`,
+	} {
+		if got := lockSources([]File{{Path: "Cargo.lock", Patch: line}}); len(got) != 0 {
+			t.Errorf("%s: held as %+v", line, got)
+		}
+	}
+}
+
 // Excluded lockfiles lose their patch, but the check reads them first.
 func TestSnapshot_LockSourcesSurviveExclude(t *testing.T) {
 	raw := &Raw{Files: []File{

@@ -234,7 +234,7 @@ func TestScore_LockfileSourceHolds(t *testing.T) {
 	if r.Verdict.Verdict != verdict.NeedsHuman || !slices.Contains(r.Verdict.Caps, verdict.LockfileSource) || len(r.LockSources) != 1 {
 		t.Errorf("verdict %+v, lock sources %+v", r.Verdict, r.LockSources)
 	}
-	cfg := load(t, `lockfile_registries = ["npm.corp.example"]`)
+	cfg := load(t, `lockfile_registries = ["NPM.corp.example."]`)
 	if r := ScoreSnapshot(context.Background(), nil, snap, Options{Config: cfg, Decider: &fakeDecider{}}); r.Verdict.Verdict != verdict.Approve {
 		t.Errorf("an allowed registry still held: %+v", r.Verdict)
 	}

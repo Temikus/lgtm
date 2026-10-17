@@ -107,7 +107,7 @@ Roles:
 
 - **gate**: enters the aggregate.
 - **cap**: never enters the aggregate and never denies. If its value is below `cap_at` (default 0.3), the verdict is capped at needs-human. `cap_at` is separate from `approve_at` because legitimate PRs score 0.41 and up on the reworded `injection`, while injection attempts score 0.14 or less ([docs/calibration.md](../docs/calibration.md)).
-- `tested` is informational by default (2026-10-17). On reviewed history rejected PRs scored higher on it than merged ones, in-sample and on a holdout (AUC 0.40 and 0.44). `aligned` and `scoped` didn't generalise either (0.71 and 0.66 in-sample, 0.35 and 0.40 on the holdout), so `approve_at` has to be fitted per repo against its rejected PRs ([docs/calibration.md](../docs/calibration.md)).
+- `tested` is informational by default (2026-10-17). On reviewed history rejected PRs scored higher on it than merged ones, in-sample and on a holdout (AUC 0.40 and 0.44). Dropping it didn't improve the aggregate out of sample (holdout AUC 0.51 with it, 0.37 without), because `aligned` and `scoped` didn't generalise either (0.71 and 0.66 in-sample, 0.35 and 0.40 on the holdout). With 16 rejected PRs in the holdout, each figure is uncertain by about ±0.15, so `approve_at` has to be fitted per repo against its rejected PRs ([docs/calibration.md](../docs/calibration.md)).
 - **–**: informational.
 
 `choice` options are an ordered array, `options = [{name = "...", definition = "..."}]`, because the consistency check reverses their order.

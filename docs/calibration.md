@@ -160,8 +160,8 @@ These choices came from the same PRs they were measured on. A holdout of two rep
 | Aggregate without `tested` | 0.66 | 0.37 |
 | Aggregate with `tested` (old) | 0.44 | 0.51 |
 
-- `tested` points the wrong way in both sets, so taking it out of the gates holds up.
-- `aligned` and `scoped` don't: their in-sample signal reverses on the holdout. Only `safe` beats chance in both. With 16 to 30 rejected PRs per set, each figure is uncertain by about ±0.1, but the conclusion is clear: **the diff questions don't predict what reviewers reject.** A rejection is mostly about approach or fit, which these questions don't ask about.
+- `tested` on its own points the wrong way in both sets. Taking it out of the gates still didn't help out of sample: the aggregate fell from 0.51 to 0.37 on the holdout, because the gates left in it reverse there too. `tested` is informational because it is wrong on its own, not because the aggregate improved.
+- `aligned` and `scoped` reverse on the holdout. Only `safe` beats chance in both. With 30 rejected PRs in-sample and 16 in the holdout, each figure is uncertain by about ±0.1 and ±0.15 (95%), so no single figure here is conclusive, the holdout drop above included. The pattern is consistent, though: the diff questions show no reliable signal on what reviewers reject. A rejection is mostly about approach or fit, which these questions don't ask about.
 - So `approve_at` must be fitted per repo, and the false-approve bound is what keeps it honest. At home-assistant's 0.94, the holdout repos would approve 5 of 16 rejected PRs (31%).
 - The cap threshold holds up: no merged holdout PR scores under 0.3 on `injection` (lowest 0.35), and every known injection attempt does.
 

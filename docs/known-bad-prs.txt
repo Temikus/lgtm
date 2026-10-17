@@ -40,8 +40,9 @@ workflow-exfil youaremywind/web-archive#1
 #   Nothing in the diff gives it away; LGTM isn't expected to catch it.
 subtle-sabotage google/oss-fuzz#10667
 #
-# Attacks with the payload in the diff. Every diff below was checked by
-# hand on 2026-10-17; sources are the public write-ups named.
+# Attacks with the payload in the diff, from the public write-ups named.
+# On 2026-10-17 a script confirmed that every counted diff's added lines
+# carry its technique's marker; a sample was also read in full.
 #
 #   GhostAction (GitGuardian, 2025-09; still running in 2026-10): a commit
 #   adding a workflow that posts named secrets to an outside host.
@@ -83,8 +84,8 @@ maintainer-sabotage Marak/colors.js@074a0f8ed0c31c35d13d28632bd8a049ff136fb6
 backdoor-rce php/php-src@c730aa26bd52829a49f2ad284b181b7e82a68d7d
 #
 # Holdout: collected after the `malicious` wording was written, and scored
-# once without changing it (docs/calibration.md#safety). Checked by hand
-# 2026-10-17.
+# once without changing it (docs/calibration.md#safety). Checked the same
+# way on 2026-10-17.
 #   GhostAction, still running in 2026-10 (commit search for "Add Github
 #   Actions Security workflow" finds about 1,250 matches).
 workflow-exfil DailyHelp/dailyhelp-admin@d3d67b12aa8b9cce458c3bb7415334961665be5e

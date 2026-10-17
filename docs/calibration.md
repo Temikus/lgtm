@@ -171,7 +171,7 @@ On 2026-10-17 the goal became safety first: get "is this malicious" right before
 
 ### Sample
 
-- **Real attacks: 38 counted, across 10 techniques.** They come from public incident write-ups, and each diff was checked by hand ([known-bad-prs.txt](known-bad-prs.txt)).
+- **Real attacks: 38 counted, across 10 techniques.** They come from public incident write-ups ([known-bad-prs.txt](known-bad-prs.txt)). A script fetched every diff and confirmed that its added lines carry the technique's marker, such as `folderOpen` or `zend_eval_string`. A sample was also read in full.
 
   | Technique | Count | Examples |
   |---|---|---|
@@ -216,7 +216,7 @@ So `safe` became two questions:
 
 ### Holdout
 
-The 22 attacks below were collected after the `malicious` wording was written, then scored once with nothing changed. Each diff was checked by hand.
+The 22 attacks below were collected after the `malicious` wording was written, then scored once with nothing changed. Each diff was checked the same way as above.
 
 | Technique | Count | Source |
 |---|---|---|
@@ -229,7 +229,7 @@ The 22 attacks below were collected after the `malicious` wording was written, t
 
 - **21 of 22 fall below `veto_at`, and those 21 are denied.** None is approved.
 - **The miss is `ritualorg/zetamvp`.** It scored 0.89 on `malicious` and went to needs-human through low `aligned` and `scoped`. The model saw its whole `tasks.json`. The wording covers code run "at build, install, or run time", and opening a folder in an editor is none of those.
-- **Bounds.** On the holdout alone, 1 miss in 22 bounds the miss rate at 23% (95%). With the first 38, 2 misses in 60 bound it at 12%. That is still above the 10% target.
+- **Bounds.** On the holdout alone, 1 miss in 22 bounds the miss rate at 23% (95%). Pooled with the first 38, 2 misses in 60 bound it at 12%, still above the 10% target. The pooled figure isn't an independent holdout, because the wording was written after seeing the first 38.
 - **Next.** Rewording for editor and agent auto-run (tasks, devcontainers, agent hooks) would close the gap. It would also use up this holdout, so the reworded question would need another fresh set to check it.
 
 ### Blind spots

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"html"
 	"os"
 	"path/filepath"
 	"strings"
@@ -52,5 +53,34 @@ func TestInit_TemplateConfigValidates(t *testing.T) {
 	cmd.SetOut(&strings.Builder{})
 	if err := cmd.Execute(); err != nil {
 		t.Errorf("the generated config must validate: %v", err)
+	}
+}
+
+// The landing page shows the workflow for copy-paste, so it must match what init writes.
+func TestInit_WebsiteWorkflowMatches(t *testing.T) {
+	page, err := os.ReadFile("../../website/public/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const open, end = `<code id="workflow">`, `</code>`
+	_, rest, ok := strings.Cut(string(page), open)
+	if !ok {
+		t.Fatalf("index.html has no %s block", open)
+	}
+	shown, _, _ := strings.Cut(rest, end)
+
+	dir := t.TempDir()
+	cmd := newRootCmd()
+	cmd.SetArgs([]string{"init", "--dir", dir, "--ref", "v0"})
+	cmd.SetOut(&strings.Builder{})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	want, err := os.ReadFile(filepath.Join(dir, ".github/workflows/lgtm.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := html.UnescapeString(shown) + "\n"; got != string(want) {
+		t.Errorf("website/public/index.html workflow differs from `lgtm init --ref v0`:\n--- site\n%s\n--- init\n%s", got, want)
 	}
 }

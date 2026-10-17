@@ -72,10 +72,14 @@ type HistoryOptions struct {
 	Since  time.Time
 	MaxPRs int
 	Mode   LabelMode
+	Data   Data
 }
 
 // History lists PRs closed since opts.Since, newest first, and labels them.
 func History(ctx context.Context, gh *github.Client, owner, repo string, opts HistoryOptions) ([]Sample, error) {
+	if opts.Data.Offline {
+		return opts.Data.stored(owner+"/"+repo, opts)
+	}
 	closed, err := listClosed(ctx, gh, owner, repo, opts.Since)
 	if err != nil {
 		return nil, err
@@ -95,12 +99,19 @@ func History(ctx context.Context, gh *github.Client, owner, repo string, opts Hi
 	out := make([]Sample, len(todo))
 	err = parallel(ctx, len(todo), historyWorkers, func(i int) error {
 		n := todo[i].GetNumber()
+		if s, ok := opts.Data.cached(todo[i], owner+"/"+repo, opts.Mode, reverted[n]); ok {
+			out[i] = s
+			return nil
+		}
 		full, _, err := gh.PullRequests.Get(ctx, owner, repo, n)
 		if err != nil {
 			return fmt.Errorf("reading #%d: %w", n, err)
 		}
-		out[i], err = h.label(ctx, full, reverted[n])
-		return err
+		if out[i], err = h.label(ctx, full, reverted[n]); err != nil {
+			return err
+		}
+		opts.Data.keep(full, out[i], opts.Mode)
+		return nil
 	})
 	return out, err
 }

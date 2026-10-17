@@ -154,7 +154,7 @@ func TestEstimateCost(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plain, err := EstimateCost(context.Background(), gh.Client, o.Config, ss, false, 10)
+	plain, err := EstimateCost(context.Background(), gh.Client, Data{}, o.Config, ss, false, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +162,7 @@ func TestEstimateCost(t *testing.T) {
 	if plain.PRs != 12 || plain.Calls != 28 || plain.Tokens <= 0 || plain.USD <= 0 {
 		t.Errorf("estimate = %+v", plain)
 	}
-	withPerturb, err := EstimateCost(context.Background(), gh.Client, o.Config, ss, true, 10)
+	withPerturb, err := EstimateCost(context.Background(), gh.Client, Data{}, o.Config, ss, true, 10)
 	if err != nil {
 		t.Fatal(err)
 	}

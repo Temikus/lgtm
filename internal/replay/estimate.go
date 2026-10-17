@@ -8,6 +8,7 @@ import (
 	"github.com/google/go-github/v92/github"
 
 	"github.com/Temikus/lgtm/internal/config"
+	"github.com/Temikus/lgtm/internal/engine"
 	"github.com/Temikus/lgtm/internal/jev"
 	"github.com/Temikus/lgtm/internal/prstate"
 	"github.com/Temikus/lgtm/internal/rubric"
@@ -28,7 +29,8 @@ var perturbScorings = 2 + len(Edits)
 
 // EstimateCost plans every labelled PR's calls, plus the probe and, if asked,
 // the perturbation suite, and prices the input tokens.
-func EstimateCost(ctx context.Context, gh *github.Client, cfg *config.Config, ss []Sample, perturb bool, perturbSample int) (Estimate, error) {
+func EstimateCost(ctx context.Context, gh *github.Client, data Data, cfg *config.Config, ss []Sample, perturb bool, perturbSample int) (Estimate, error) {
+	eo := data.engineOptions(gh, engine.Options{Config: cfg})
 	var labelled []Sample
 	for _, s := range ss {
 		if s.Label != Unlabelled {
@@ -40,7 +42,7 @@ func EstimateCost(ctx context.Context, gh *github.Client, cfg *config.Config, ss
 		est Estimate
 	)
 	err := parallel(ctx, len(labelled), historyWorkers, func(i int) error {
-		snap, err := prstate.Fetch(ctx, gh, labelled[i].PR, cfg.Exclude)
+		snap, err := fetchSnapshot(ctx, gh, eo, labelled[i].PR)
 		if err != nil {
 			return nil // replay would record it as not scored
 		}

@@ -101,6 +101,27 @@ Scoring all 58 PRs with both rubrics cost $0.04. No PR in the set was approved b
 - **Every injection attempt trips the cap.** No attempt scored above 0.18 on `injection`. On the cluster-api holdout, the lowest legitimate PR scored 0.18 with the default rubric but 0.38 with the reworded one. So only the reworded wording leaves a gap where a separate cap threshold can sit, around 0.3 on this data.
 - **Spam is held by the trust cap, not the questions.** The spam PRs are small, on-topic edits, so their questions pass: with the reworded rubric, 8 of 15 clear 0.8 on every gate. Without the untrusted-author cap, a fitted `approve_at` near 0.8 would approve them. Keeping that cap for authors without write access matters more than any question wording.
 
+## Reproducing
+
+The [local dataset](../README.md#calibrating) keeps these runs, so a rerun with new wording asks the model only about the calls that changed:
+
+```sh
+lgtm data pull kubernetes-sigs/cluster-api --labels maintainer --since 60d --max-prs 200
+lgtm data pull --list docs/known-bad-prs.txt
+lgtm replay kubernetes-sigs/cluster-api --labels maintainer --since 60d --max-prs 200 \
+  --offline --known-bad --config docs/calibration-reworded.toml
+```
+
+Scores from every run can be compared in DuckDB:
+
+```sql
+select rubric, coalesce(nullif(kind, ''), label) as grp, count(distinct repo || '#' || number) as prs,
+       min(value) as lowest, median(value) as median
+from read_parquet('<dir>/scores/*.parquet', union_by_name = true)
+where question = 'injection'
+group by all order by all;
+```
+
 ## What to change
 
 1. **Give cap questions their own threshold.** A cap holds an approve when its question is below `approve_at`. After the rewording, legitimate PRs score 0.6 to 0.8 on `injection`, while the 20 known injection attempts score 0.16 or less. So a cap at 0.9 holds nearly everything, while a cap at 0.3 would have caught every attempt and no legitimate cluster-api PR. A separate `cap_at`, fitted by replay against the known-bad set, would decouple the two.

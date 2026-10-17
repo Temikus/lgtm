@@ -21,6 +21,8 @@ type replayOpts struct {
 	maxPRs, sample         int
 	budget, target         float64
 	write, perturb, dryRun bool
+	offline, rescore, bad  bool
+	data                   dataOpts
 }
 
 func newReplayCmd() *cobra.Command {
@@ -35,7 +37,10 @@ func newReplayCmd() *cobra.Command {
 			"and PRs closed by someone other than their author, for repos like kubernetes;\n" +
 			"merged counts merges, for repos with one maintainer.\n\n" +
 			"Run --dry-run first: it labels history and estimates the model cost without\n" +
-			"calling the model. --budget-usd caps the real run.",
+			"calling the model. --budget-usd caps the real run.\n\n" +
+			"Replay keeps what it reads in a local dataset (see lgtm data), so a second\n" +
+			"run reads only the PR list from GitHub and reuses the model's answers to\n" +
+			"unchanged calls. --offline reads nothing from GitHub.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error { return o.run(cmd, args[0]) },
 	}
@@ -50,6 +55,10 @@ func newReplayCmd() *cobra.Command {
 	f.IntVar(&o.sample, "perturb-sample", 10, "PRs to perturb")
 	f.BoolVar(&o.dryRun, "dry-run", false, "label history and estimate the cost, without calling the model")
 	f.StringVar(&o.cfgPath, "config", config.Path, "config file to read and, with --write, update")
+	f.BoolVar(&o.offline, "offline", false, "read PRs only from the local dataset (fill it with lgtm data pull)")
+	f.BoolVar(&o.rescore, "rescore", false, "ask the model again even when the dataset has its answer")
+	f.BoolVar(&o.bad, "known-bad", false, "also score the dataset's known-bad PRs (lgtm data pull --list), outside the fit")
+	o.data.flags(f)
 	return cmd
 }
 
@@ -67,13 +76,18 @@ func (o replayOpts) run(cmd *cobra.Command, ref string) error {
 	if err != nil {
 		return err
 	}
-	gh, err := githubClient(ctx)
+	gh, data, err := o.sources(cmd)
 	if err != nil {
 		return err
 	}
-	hist := replay.HistoryOptions{Since: time.Now().Add(-age), MaxPRs: o.maxPRs, Mode: mode}
+	st := data.Store
+	hist := replay.HistoryOptions{Since: time.Now().Add(-age), MaxPRs: o.maxPRs, Mode: mode, Data: data}
 	if o.dryRun {
-		return o.dry(cmd, cfg, gh, owner, repo, hist)
+		err := o.dry(cmd, cfg, gh, owner, repo, hist)
+		if st != nil {
+			err = errors.Join(err, st.Flush())
+		}
+		return err
 	}
 	d, err := decider(cfg, "")
 	if err != nil {
@@ -85,6 +99,7 @@ func (o replayOpts) run(cmd *cobra.Command, ref string) error {
 		BudgetUSD: o.budget, TargetPrecision: o.target, History: hist,
 		Perturb: o.perturb, PerturbSample: o.sample,
 		Progress: cmd.ErrOrStderr(),
+		Data:     data, Rescore: o.rescore, KnownBad: o.bad,
 	})
 	if err != nil {
 		return err
@@ -95,13 +110,30 @@ func (o replayOpts) run(cmd *cobra.Command, ref string) error {
 	return o.save(cmd, rep)
 }
 
+// sources opens the dataset and, unless offline, a GitHub client.
+func (o replayOpts) sources(cmd *cobra.Command) (*github.Client, replay.Data, error) {
+	st, err := o.data.open()
+	if err != nil {
+		return nil, replay.Data{}, err
+	}
+	if o.offline && st == nil {
+		return nil, replay.Data{}, errors.New("--offline reads the local dataset, which --no-data turns off")
+	}
+	data := replay.Data{Store: st, Offline: o.offline}
+	if o.offline {
+		return nil, data, nil
+	}
+	gh, err := githubClient(cmd.Context())
+	return gh, data, err
+}
+
 func (o replayOpts) dry(cmd *cobra.Command, cfg *config.Config, gh *github.Client, owner, repo string, hist replay.HistoryOptions) error {
 	ctx := cmd.Context()
 	samples, err := replay.History(ctx, gh, owner, repo, hist)
 	if err != nil {
 		return err
 	}
-	est, err := replay.EstimateCost(ctx, gh, cfg, samples, o.perturb, o.sample)
+	est, err := replay.EstimateCost(ctx, gh, hist.Data, cfg, samples, o.perturb, o.sample)
 	if err != nil {
 		return err
 	}
@@ -129,14 +161,22 @@ func replayFlags(since, labels string, target float64) (time.Duration, replay.La
 	if err != nil {
 		return 0, "", err
 	}
-	mode := replay.LabelMode(labels)
-	if mode != replay.Strict && mode != replay.Maintainer && mode != replay.Merged {
-		return 0, "", fmt.Errorf("--labels must be strict, maintainer, or merged, got %q", labels)
+	mode, err := parseLabels(labels)
+	if err != nil {
+		return 0, "", err
 	}
 	if target <= 0 || target >= 1 {
 		return 0, "", fmt.Errorf("--target-precision must be between 0 and 1, got %v", target)
 	}
 	return age, mode, nil
+}
+
+func parseLabels(labels string) (replay.LabelMode, error) {
+	mode := replay.LabelMode(labels)
+	if mode != replay.Strict && mode != replay.Maintainer && mode != replay.Merged {
+		return "", fmt.Errorf("--labels must be strict, maintainer, or merged, got %q", labels)
+	}
+	return mode, nil
 }
 
 var dayAge = regexp.MustCompile(`^(\d+)d$`)

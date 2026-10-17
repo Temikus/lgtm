@@ -15,6 +15,7 @@ import (
 	"github.com/pelletier/go-toml/v2"
 
 	"github.com/Temikus/lgtm/internal/config"
+	"github.com/Temikus/lgtm/internal/dataset"
 	"github.com/Temikus/lgtm/internal/engine"
 	"github.com/Temikus/lgtm/internal/ghout"
 	"github.com/Temikus/lgtm/internal/jev"
@@ -35,6 +36,12 @@ type Options struct {
 	Concurrency     int // 0 means 4
 	Progress        io.Writer
 	Now             func() time.Time
+	// Data is the local dataset. A zero Data reads everything from GitHub.
+	Data Data
+	// Rescore asks the model even when the dataset has its answer.
+	Rescore bool
+	// KnownBad also scores the dataset's known-bad PRs, outside the fit.
+	KnownBad bool
 }
 
 // Report is everything replay found.
@@ -56,6 +63,7 @@ type Report struct {
 	Baseline    *FlipRate
 	Edits       []FlipRate
 	Shadow      *Shadow
+	KnownBad    []KnownBad
 	CostUSD     float64
 	// Calibration is what --write stores, or nil with WhyNot saying why not.
 	Calibration *config.Calibration
@@ -69,21 +77,21 @@ type Failure struct {
 }
 
 // Run labels history, scores each labelled PR, and fits thresholds.
-func Run(ctx context.Context, gh *github.Client, o Options) (*Report, error) {
-	if o.Now == nil {
-		o.Now = time.Now
+func Run(ctx context.Context, gh *github.Client, o Options) (rep *Report, err error) {
+	o = o.withDefaults()
+	if st := o.Data.Store; st != nil {
+		// Keep what was read even when the run fails or stops early.
+		defer func() { err = errors.Join(err, st.Flush()) }()
 	}
-	if o.Concurrency <= 0 {
-		o.Concurrency = 4
-	}
-	if o.PerturbSample <= 0 {
-		o.PerturbSample = 10
+	if o.KnownBad && o.Data.Store == nil {
+		return nil, errors.New("known-bad PRs come from the local dataset, which is off")
 	}
 	budget := &Budget{Decider: o.Decider, LimitUSD: o.BudgetUSD}
 	cfg := replayConfig(o.Config)
-	eo := engine.Options{Config: cfg, Decider: budget}
+	eo := o.Data.engineOptions(gh, engine.Options{Config: cfg, Decider: o.cached(budget)})
+	runID, hash := newRunID(o.Now()), rubricHash(cfg)
 
-	rep := &Report{Repo: o.Owner + "/" + o.Repo, Labels: o.History.Mode, Model: cfg.Model, CurrentPol: o.Config.Policy()}
+	rep = &Report{Repo: o.Owner + "/" + o.Repo, Labels: o.History.Mode, Model: cfg.Model, CurrentPol: o.Config.Policy()}
 	o.progress("budget $%.2f: model calls stop before spend passes it", o.BudgetUSD)
 	o.progress("reading closed PRs since %s", o.History.Since.Format(time.DateOnly))
 	samples, err := History(ctx, gh, o.Owner, o.Repo, o.History)
@@ -99,7 +107,11 @@ func Run(ctx context.Context, gh *github.Client, o Options) (*Report, error) {
 		}
 	}
 	o.progress("%d PRs, %d labelled; scoring the labelled ones", len(samples), len(labelled))
-	rep.collect(labelled, o.scoreAll(ctx, gh, eo, labelled))
+	results := o.scoreAll(ctx, gh, eo, labelled)
+	rep.collect(labelled, results)
+	if o.Data.Store != nil {
+		o.Data.Store.AddScores(scoreRows(runID, hash, string(o.History.Mode), labelled, nil, results))
+	}
 
 	rep.Fit = FitThresholds(rep.Points, o.TargetPrecision)
 	rep.Current = Measure(rep.Points, rep.CurrentPol)
@@ -110,12 +122,33 @@ func Run(ctx context.Context, gh *github.Client, o Options) (*Report, error) {
 		rep.Fitted = &m
 	}
 	rep.Reliability = Reliability(rep.Points, cfg.Rubric)
-	if err := o.extras(ctx, gh, eo, rep, labelled); err != nil {
+	// The perturbation baseline scores each PR twice, so it skips the cache.
+	if err := o.extras(ctx, gh, eo, budget, rep, labelled); err != nil {
 		return nil, err
+	}
+	if o.KnownBad && !rep.BudgetHit {
+		o.scoreKnownBad(ctx, gh, eo, rep, runID, hash)
 	}
 	rep.CostUSD = budget.Spent()
 	rep.Calibration, rep.WhyNot = calibration(rep, o.Now())
 	return rep, nil
+}
+
+func (o Options) withDefaults() Options {
+	if o.Now == nil {
+		o.Now = time.Now
+	}
+	if o.Data.Now == nil {
+		o.Data.Now = o.Now
+	}
+	o.History.Data = o.Data
+	if o.Concurrency <= 0 {
+		o.Concurrency = 4
+	}
+	if o.PerturbSample <= 0 {
+		o.PerturbSample = 10
+	}
+	return o
 }
 
 func (rep *Report) collect(labelled []Sample, results []*engine.Result) {
@@ -140,17 +173,21 @@ func (rep *Report) collect(labelled []Sample, results []*engine.Result) {
 }
 
 // extras runs the probe, the perturbation suite, and the shadow-mode read.
-func (o Options) extras(ctx context.Context, gh *github.Client, eo engine.Options, rep *Report, labelled []Sample) error {
-	cfg := eo.Config
-	if sample := o.probeSample(ctx, gh, cfg, labelled); sample != nil && !rep.BudgetHit {
+func (o Options) extras(ctx context.Context, gh *github.Client, eo engine.Options, uncached jev.Decider, rep *Report, labelled []Sample) error {
+	if sample := o.probeSample(ctx, gh, eo, labelled); sample != nil && !rep.BudgetHit {
 		o.progress("probing each question with content-free PRs")
 		rep.Probe = Probe(ctx, gh, eo, sample, rep.CurrentPol.ApproveAt)
 	}
 	if o.Perturb && !rep.BudgetHit {
-		snaps := o.perturbSample(ctx, gh, cfg, rep.Points)
+		snaps := o.perturbSample(ctx, gh, eo, rep.Points)
 		o.progress("perturbing %d PRs", len(snaps))
-		base, edits := Perturb(ctx, gh, eo, snaps, rep.CurrentPol)
+		peo := eo
+		peo.Decider = uncached
+		base, edits := Perturb(ctx, gh, peo, snaps, rep.CurrentPol)
 		rep.Baseline, rep.Edits = &base, edits
+	}
+	if o.Data.Offline {
+		return nil
 	}
 	o.progress("reading earlier LGTM check runs")
 	var err error
@@ -203,9 +240,9 @@ func (o Options) scoreAll(ctx context.Context, gh *github.Client, eo engine.Opti
 	return out
 }
 
-func (o Options) probeSample(ctx context.Context, gh *github.Client, cfg *config.Config, ss []Sample) *prstate.Snapshot {
+func (o Options) probeSample(ctx context.Context, gh *github.Client, eo engine.Options, ss []Sample) *prstate.Snapshot {
 	for _, s := range ss {
-		if snap, err := prstate.Fetch(ctx, gh, s.PR, cfg.Exclude); err == nil {
+		if snap, err := fetchSnapshot(ctx, gh, eo, s.PR); err == nil {
 			return snap
 		}
 	}
@@ -214,7 +251,7 @@ func (o Options) probeSample(ctx context.Context, gh *github.Client, cfg *config
 
 // perturbSample takes the labelled PRs nearest the approve threshold, where
 // a flip would change the verdict.
-func (o Options) perturbSample(ctx context.Context, gh *github.Client, cfg *config.Config, ps []Point) []*prstate.Snapshot {
+func (o Options) perturbSample(ctx context.Context, gh *github.Client, eo engine.Options, ps []Point) []*prstate.Snapshot {
 	ps = slices.Clone(ps)
 	at := o.Config.Policy().ApproveAt
 	slices.SortStableFunc(ps, func(a, b Point) int { return cmp.Compare(math.Abs(a.Agg-at), math.Abs(b.Agg-at)) })
@@ -223,9 +260,53 @@ func (o Options) perturbSample(ctx context.Context, gh *github.Client, cfg *conf
 		if len(out) == o.PerturbSample {
 			break
 		}
-		if snap, err := prstate.Fetch(ctx, gh, p.PR, cfg.Exclude); err == nil {
+		if snap, err := fetchSnapshot(ctx, gh, eo, p.PR); err == nil {
 			out = append(out, snap)
 		}
+	}
+	return out
+}
+
+// cached puts the dataset's response cache in front of d, when there is one.
+func (o Options) cached(d jev.Decider) jev.Decider {
+	if o.Data.Store == nil {
+		return d
+	}
+	return &dataset.Cache{Decider: d, Store: o.Data.Store, Rescore: o.Rescore}
+}
+
+func (o Options) scoreKnownBad(ctx context.Context, gh *github.Client, eo engine.Options, rep *Report, runID, hash string) {
+	ss, kinds := o.Data.knownBad()
+	o.progress("scoring %d known-bad PRs", len(ss))
+	rs := o.scoreAll(ctx, gh, eo, ss)
+	rep.KnownBad = knownBadResults(ss, kinds, rs)
+	o.Data.Store.AddScores(scoreRows(runID, hash, dataset.SourceList, ss, kinds, rs))
+}
+
+// fetchSnapshot reads pr's diff the way eo would and applies its excludes.
+func fetchSnapshot(ctx context.Context, gh *github.Client, eo engine.Options, pr prstate.PR) (*prstate.Snapshot, error) {
+	fetch := eo.Fetch
+	if fetch == nil {
+		fetch = func(ctx context.Context, pr prstate.PR) (*prstate.Raw, error) { return prstate.FetchRaw(ctx, gh, pr) }
+	}
+	raw, err := fetch(ctx, pr)
+	if err != nil {
+		return nil, err
+	}
+	return raw.Snapshot(eo.Config.Exclude)
+}
+
+func knownBadResults(ss []Sample, kinds []string, rs []*engine.Result) []KnownBad {
+	var out []KnownBad
+	for i, r := range rs {
+		if r == nil {
+			continue
+		}
+		kb := KnownBad{Ref: fmt.Sprintf("%s/%s#%d", ss[i].PR.Owner, ss[i].PR.Repo, ss[i].PR.Number), Kind: kinds[i], Verdict: string(r.Verdict.Verdict), Err: r.Verdict.Failure}
+		for _, c := range r.Verdict.Caps {
+			kb.Caps = append(kb.Caps, string(c))
+		}
+		out = append(out, kb)
 	}
 	return out
 }

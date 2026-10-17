@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
+	"sync"
 	"testing"
 
 	"github.com/google/go-github/v92/github"
@@ -17,20 +19,44 @@ import (
 type Server struct {
 	Mux    *http.ServeMux
 	Client *github.Client
+
+	mu       sync.Mutex
+	requests []string
+}
+
+// Requests returns "METHOD /path" for each request served so far.
+func (s *Server) Requests() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.requests)
+}
+
+// Reset forgets the requests served so far.
+func (s *Server) Reset() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.requests = nil
 }
 
 // New starts a server and returns a client pointed at it.
 func New(t *testing.T) *Server {
 	t.Helper()
 	mux := http.NewServeMux()
-	srv := httptest.NewServer(mux)
+	s := &Server{Mux: mux}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.mu.Lock()
+		s.requests = append(s.requests, r.Method+" "+r.URL.Path)
+		s.mu.Unlock()
+		mux.ServeHTTP(w, r)
+	}))
 	t.Cleanup(srv.Close)
 	base := srv.URL + "/"
 	c, err := github.NewClient(github.WithURLs(&base, &base), github.WithDisableRateLimitCheck())
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &Server{Mux: mux, Client: c}
+	s.Client = c
+	return s
 }
 
 // JSON writes v as a JSON response.

@@ -26,6 +26,7 @@ func (r *Report) Text(target float64) string {
 	r.textProbe(&b)
 	r.textPerturb(&b)
 	r.textShadow(&b)
+	r.textKnownBad(&b)
 	r.textReview(&b)
 	return b.String()
 }
@@ -138,6 +139,45 @@ func (r *Report) textShadow(b *textWriter) {
 		if g, ok := s.ByVerdict[v]; ok {
 			b.w("  %-12s %3d PRs · median time to merge %s · %.1f comments per PR", v, g.N, dur(g.MedianTimeToMerge), g.MeanComments)
 		}
+	}
+}
+
+// textKnownBad counts verdicts per kind and names every approved PR, since
+// approving a known-bad PR is the failure that matters.
+func (r *Report) textKnownBad(b *textWriter) {
+	if len(r.KnownBad) == 0 {
+		return
+	}
+	type tally struct{ approve, deny, human, failed int }
+	byKind := map[string]*tally{}
+	var kinds, approved []string
+	for _, kb := range r.KnownBad {
+		t := byKind[kb.Kind]
+		if t == nil {
+			t = &tally{}
+			byKind[kb.Kind] = t
+			kinds = append(kinds, kb.Kind)
+		}
+		switch {
+		case kb.Err != nil:
+			t.failed++
+		case kb.Verdict == string(verdict.Approve):
+			t.approve++
+			approved = append(approved, kb.Ref)
+		case kb.Verdict == string(verdict.Deny):
+			t.deny++
+		default:
+			t.human++
+		}
+	}
+	slices.Sort(kinds)
+	b.w("\nKnown-bad PRs: %d scored, %d approved", len(r.KnownBad), len(approved))
+	for _, k := range kinds {
+		t := byKind[k]
+		b.w("  %-12s %d deny · %d needs-human · %d approve · %d not scored", k, t.deny, t.human, t.approve, t.failed)
+	}
+	for _, ref := range approved {
+		b.w("  approved: %s", clean(ref))
 	}
 }
 

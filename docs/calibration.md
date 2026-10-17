@@ -185,10 +185,10 @@ On 2026-10-17 the goal became safety first: get "is this malicious" right before
   - 3 changes that open a hole without a payload;
   - 4 blind spots;
   - 20 injection attempts and 15 spam PRs.
-- **Legitimate: 1,014 PRs.**
+- **Legitimate: 1,094 PRs.**
   - 376 from home-assistant's history. All count as legitimate, rejected or not.
   - 157 known-good.
-  - 262 hard-good ([hard-good-prs.txt](hard-good-prs.txt)): merged, approved PRs that touch what an attack would. That means workflows with secrets, auth, TLS, install scripts, subprocesses, telemetry, and base64 blobs.
+  - 342 hard-good ([hard-good-prs.txt](hard-good-prs.txt)): merged, approved PRs that touch what an attack would. That means workflows with secrets, auth, TLS, install scripts, subprocesses, telemetry, base64 blobs, and editor, git-hook, or AI-agent config.
 - **No synthetic attacks.** We chose not to write attack payloads, so every figure rests on real ones.
 
 ### The old `safe` mixed malice with mistakes
@@ -206,9 +206,9 @@ So `safe` became two questions:
 | | Below `veto_at` | Verdict |
 |---|---|---|
 | Counted attacks | 37 of 38 | 38 denied, none approved |
-| Legitimate PRs | 0 of 1,014 (lowest 0.43) | |
+| Legitimate PRs | 0 of 1,094 (lowest 0.43) | |
 
-- **Bounds.** 1 miss in 38 bounds the real miss rate at 14% (95%, Clopper-Pearson). 0 false denials in 1,014 bounds the false-deny rate at 0.4%.
+- **Bounds.** 1 miss in 38 bounds the real miss rate at 14% (95%, Clopper-Pearson). 0 false denials in 1,094 bounds the false-deny rate at 0.3%.
 - **The miss.** colors.js's endless loop scored above 0.4 on `malicious`, but other gates still denied it.
 - **The margin is thin.** At 0.5 the veto would deny 2 legitimate PRs, which scored 0.43 and 0.45.
 - **`hygiene` at 0.8** holds 4 of 354 merged history PRs (1%) and 129 of 417 known-good ones. The known-good ones held are mostly the hard ones (auth, TLS, install scripts), where a human look is the point.
@@ -230,7 +230,12 @@ The 22 attacks below were collected after the `malicious` wording was written, t
 - **21 of 22 fall below `veto_at`, and those 21 are denied.** None is approved.
 - **The miss is `ritualorg/zetamvp`.** It scored 0.89 on `malicious` and went to needs-human through low `aligned` and `scoped`. The model saw its whole `tasks.json`. The wording covers code run "at build, install, or run time", and opening a folder in an editor is none of those.
 - **Bounds.** On the holdout alone, 1 miss in 22 bounds the miss rate at 23% (95%). Pooled with the first 38, 2 misses in 60 bound it at 12%, still above the 10% target. The pooled figure isn't an independent holdout, because the wording was written after seeing the first 38.
-- **Next.** Rewording for editor and agent auto-run (tasks, devcontainers, agent hooks) would close the gap. It would also use up this holdout, so the reworded question would need another fresh set to check it.
+- **A rewording didn't help.** One version added commands that run on their own when someone opens the project: editor tasks, dev container commands, git hooks, and agent hooks that download, decode, or hide what they run.
+  - It moved `zetamvp` from 0.89 to 0.48, still above `veto_at`.
+  - It also lowered legitimate PRs by about 0.05. One telemetry PR fell to 0.38 and would have been denied.
+  - It was tried with 80 more hard-good PRs that change editor, dev container, git-hook, or agent config. 62 of them touch those paths.
+  - It was reverted. Trying it also spent this holdout on that technique.
+  - Editor auto-run may suit a deterministic check better, like the lockfile one: a `tasks.json` task with `runOn: folderOpen` that runs a network fetch.
 
 ### Blind spots
 

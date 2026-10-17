@@ -237,6 +237,19 @@ func linkedIssueTitles(ctx context.Context, gh *github.Client, pr PR) []string {
 	return titles
 }
 
+// Matching returns the paths of files whose path matches any glob.
+func Matching(globs []string, files ...[]File) []string {
+	var out []string
+	for _, fs := range files {
+		for _, f := range fs {
+			if matchAny(globs, f.Path) || (f.PreviousPath != "" && matchAny(globs, f.PreviousPath)) {
+				out = appendOnce(out, f.Path)
+			}
+		}
+	}
+	return out
+}
+
 func matchAny(globs []string, path string) bool {
 	for _, g := range globs {
 		if ok, _ := doublestar.Match(g, path); ok {

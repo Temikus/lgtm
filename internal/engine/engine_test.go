@@ -252,3 +252,24 @@ func TestScore_FailedRequiredCheckHolds(t *testing.T) {
 		t.Errorf("an unreadable CI status held the PR: %+v, err %v", r.Verdict, r.CIErr)
 	}
 }
+
+func TestScore_SensitiveAndTooLarge(t *testing.T) {
+	raw := &prstate.Raw{
+		PR: prstate.PR{Owner: "o", Repo: "r", Number: 1, BaseSHA: "b", HeadSHA: "h", Title: "CI", Body: "Tidy CI.", Author: "ann"},
+		Files: []prstate.File{
+			{Path: ".github/workflows/ci.yml", Status: "modified", Additions: 600, Deletions: 500, Changes: 1100, Patch: "+on: push"},
+		},
+	}
+	snap, err := raw.Snapshot(config.DefaultExclude)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := ScoreSnapshot(context.Background(), nil, snap, Options{Config: load(t, ""), Decider: &fakeDecider{}})
+	if !slices.Contains(r.Verdict.Caps, verdict.SensitivePath) || !slices.Contains(r.Verdict.Caps, verdict.TooLarge) || r.ChangedLines != 1100 {
+		t.Errorf("caps %v, sensitive %v, lines %d", r.Verdict.Caps, r.Sensitive, r.ChangedLines)
+	}
+	off := load(t, "sensitive_paths = []\nmax_changed_lines = 0")
+	if r := ScoreSnapshot(context.Background(), nil, snap, Options{Config: off, Decider: &fakeDecider{}}); r.Verdict.Verdict != verdict.Approve {
+		t.Errorf("both checks off but still held: %+v", r.Verdict)
+	}
+}

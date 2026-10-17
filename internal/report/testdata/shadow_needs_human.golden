@@ -5,7 +5,6 @@ Score **0.42** (approve at ≥ 0.90, deny at ≤ 0.10)
 
 | Check | | Value |
 |---|---|---|
-| tested | `████░░░░░░` | 0.42 |
 | aligned | `██████████` | 0.97 |
 | scoped | `██████████` | 0.97 |
 | safe | `██████████` | 0.97 |
@@ -15,6 +14,7 @@ Shadow mode: nothing is gated.
 
 <details><summary>Details</summary>
 
+- tested: 0.42
 - described: 0.97
 - risk: moderate (0.70)
 - reviewability: easy (0.75)

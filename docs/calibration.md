@@ -145,6 +145,26 @@ These 30 are the negatives the kubernetes set lacked: a reviewer judged the diff
 - The PRs scored lowest are mostly ones that talk to AI reviewers. `channel-io/BezierSwift#201` says only `@coderabbitai ignore`, which is an instruction to an automated reviewer, if a harmless one. Repos that build AI products also score low, because their diffs contain prompts.
 - A separate cap threshold of 0.3 catches every attempt: more than twice the highest attempt score (0.14). It holds 7 of the 157 known-good PRs (4%) and no ordinary PR. A held PR goes to a human, which is cheap, while a missed attempt is not, so the cut-off should err high.
 
+## Changes adopted
+
+On 2026-10-17 the reworded wording became the default, `tested` became informational, cap questions got their own `cap_at` (default 0.3), and replay now fits rates per class instead of precision. The first fit had picked `approve_at` 0.06 on home-assistant, because 96% of its closed PRs were merged, so approving nearly everything already reached 95% precision. With the new fit, home-assistant gets `approve_at` 0.94: it approves 27% of merged PRs and 1 of 20 rejected ones (5%), at 99% precision. node and cluster-api say they have too few rejected PRs (10 and 13 of the 20 needed).
+
+These choices came from the same PRs they were measured on. A holdout of two repos they weren't made on, denoland/deno and withastro/astro (478 merged and 16 rejected PRs, $0.24), checked them. AUC per question:
+
+| | in-sample (node, home-assistant) | holdout (deno, astro) |
+|---|---|---|
+| `safe` | 0.62 | 0.64 |
+| `tested` | 0.40 | 0.44 |
+| `scoped` | 0.66 | 0.40 |
+| `aligned` | 0.71 | 0.35 |
+| Aggregate without `tested` | 0.66 | 0.37 |
+| Aggregate with `tested` (old) | 0.44 | 0.51 |
+
+- `tested` on its own points the wrong way in both sets. Taking it out of the gates still didn't help out of sample: the aggregate fell from 0.51 to 0.37 on the holdout, because the gates left in it reverse there too. `tested` is informational because it is wrong on its own, not because the aggregate improved.
+- `aligned` and `scoped` reverse on the holdout. Only `safe` beats chance in both. With 30 rejected PRs in-sample and 16 in the holdout, each figure is uncertain by about ±0.1 and ±0.15 (95%), so no single figure here is conclusive, the holdout drop above included. The pattern is consistent, though: the diff questions show no reliable signal on what reviewers reject. A rejection is mostly about approach or fit, which these questions don't ask about.
+- So `approve_at` must be fitted per repo, and the false-approve bound is what keeps it honest. At home-assistant's 0.94, the holdout repos would approve 5 of 16 rejected PRs (31%).
+- The cap threshold holds up: no merged holdout PR scores under 0.3 on `injection` (lowest 0.35), and every known injection attempt does.
+
 ## Reproducing
 
 The [local dataset](../README.md#calibrating) keeps these runs, so a rerun with new wording asks the model only about the calls that changed:

@@ -30,7 +30,7 @@ func TestDefaults_MatchPRDTable(t *testing.T) {
 		"aligned":       {jev.Noul, Gate, Full},
 		"scoped":        {jev.Noul, Gate, Full},
 		"safe":          {jev.Noul, Gate, Diff},
-		"tested":        {jev.Noul, Gate, Diff},
+		"tested":        {jev.Noul, Info, Diff},
 		"injection":     {jev.Noul, Cap, Full},
 		"described":     {jev.Noul, Info, Full},
 		"risk":          {jev.Choice, Info, Full},
@@ -52,6 +52,18 @@ func TestDefaults_MatchPRDTable(t *testing.T) {
 	}
 	if err := Validate(qs); err != nil {
 		t.Fatalf("defaults must validate: %v", err)
+	}
+}
+
+// tested points the wrong way on reviewed history, so it doesn't gate by
+// default; a repo can make it a gate again.
+func TestMerge_TestedCanGateAgain(t *testing.T) {
+	qs, err := Merge(Defaults(), map[string]Override{"tested": {Gate: ptr(true)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if q := byID(t, qs, "tested"); q.Role != Gate {
+		t.Errorf("tested role = %s, want gate", q.Role)
 	}
 }
 

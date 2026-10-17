@@ -25,17 +25,17 @@ import (
 
 // Options configure a replay.
 type Options struct {
-	Owner, Repo     string
-	Config          *config.Config
-	Decider         jev.Decider
-	BudgetUSD       float64
-	History         HistoryOptions
-	TargetPrecision float64
-	Perturb         bool
-	PerturbSample   int // PRs to perturb; 0 means 10
-	Concurrency     int // 0 means 4
-	Progress        io.Writer
-	Now             func() time.Time
+	Owner, Repo   string
+	Config        *config.Config
+	Decider       jev.Decider
+	BudgetUSD     float64
+	History       HistoryOptions
+	Rates         Rates // zero means DefaultRates
+	Perturb       bool
+	PerturbSample int // PRs to perturb; 0 means 10
+	Concurrency   int // 0 means 4
+	Progress      io.Writer
+	Now           func() time.Time
 	// Data is the local dataset. A zero Data reads everything from GitHub.
 	Data Data
 	// Rescore asks the model even when the dataset has its answer.
@@ -65,7 +65,12 @@ type Report struct {
 	Edits       []FlipRate
 	Shadow      *Shadow
 	Listed      []Listed
-	CostUSD     float64
+	// ListedPoints are the listed PRs as points, for the false-deny rate
+	// and the cap sweep.
+	ListedPoints []Point
+	Rates        Rates
+	CapSweeps    []CapSweep
+	CostUSD      float64
 	// Calibration is what --write stores, or nil with WhyNot saying why not.
 	Calibration *config.Calibration
 	WhyNot      string
@@ -114,7 +119,11 @@ func Run(ctx context.Context, gh *github.Client, o Options) (rep *Report, err er
 		o.Data.Store.AddScores(scoreRows(runID, hash, string(o.History.Mode), labelled, nil, results))
 	}
 
-	rep.Fit = FitThresholds(rep.Points, o.TargetPrecision)
+	if o.Lists && !rep.BudgetHit {
+		o.scoreListed(ctx, gh, eo, rep, runID, hash)
+	}
+	rep.Rates = o.Rates
+	rep.Fit = FitThresholds(append(slices.Clone(rep.Points), rep.ListedPoints...), o.Rates)
 	rep.Current = Measure(rep.Points, rep.CurrentPol)
 	if rep.Fit.OK {
 		pol := rep.CurrentPol
@@ -123,12 +132,10 @@ func Run(ctx context.Context, gh *github.Client, o Options) (rep *Report, err er
 		rep.Fitted = &m
 	}
 	rep.Reliability = Reliability(rep.Points, cfg.Rubric)
+	rep.CapSweeps = CapSweeps(append(slices.Clone(rep.Points), rep.ListedPoints...), cfg.Rubric, rep.CurrentPol.CapAt)
 	// The perturbation baseline scores each PR twice, so it skips the cache.
 	if err := o.extras(ctx, gh, eo, budget, rep, labelled); err != nil {
 		return nil, err
-	}
-	if o.Lists && !rep.BudgetHit {
-		o.scoreListed(ctx, gh, eo, rep, runID, hash)
 	}
 	rep.CostUSD = budget.Spent()
 	rep.Calibration, rep.WhyNot = calibration(rep, o.Now())
@@ -148,6 +155,9 @@ func (o Options) withDefaults() Options {
 	}
 	if o.PerturbSample <= 0 {
 		o.PerturbSample = 10
+	}
+	if o.Rates == (Rates{}) {
+		o.Rates = DefaultRates
 	}
 	return o
 }
@@ -281,6 +291,14 @@ func (o Options) scoreListed(ctx context.Context, gh *github.Client, eo engine.O
 	o.progress("scoring %d listed PRs", len(ss))
 	rs := o.scoreAll(ctx, gh, eo, ss)
 	rep.Listed = listedResults(ss, kinds, rs)
+	for i, r := range rs {
+		if r == nil || r.Verdict.Failure != nil {
+			continue
+		}
+		p := point(r)
+		p.PR, p.Number, p.Title, p.Label, p.Reason, p.Listed = ss[i].PR, ss[i].PR.Number, ss[i].PR.Title, ss[i].Label, kinds[i], true
+		rep.ListedPoints = append(rep.ListedPoints, p)
+	}
 	o.Data.Store.AddScores(scoreRows(runID, hash, dataset.SourceList, ss, kinds, rs))
 }
 
@@ -337,6 +355,10 @@ func calibration(rep *Report, now time.Time) (*config.Calibration, string) {
 		ApproveAt:        math.Ceil(rep.Fit.ApproveAt*1e4) / 1e4,
 		DenyAt:           math.Floor(rep.Fit.DenyAt*1e4) / 1e4,
 		ApprovePrecision: math.Floor(rep.Fit.ApprovePrecision*1e4) / 1e4,
+		// Rates round up, so they never look better than measured.
+		FalseApprove: math.Ceil(rep.Fit.FalseApprove*1e4) / 1e4,
+		FalseDeny:    math.Ceil(rep.Fit.FalseDeny*1e4) / 1e4,
+		NNegative:    rep.Fit.NNegative,
 	}, ""
 }
 

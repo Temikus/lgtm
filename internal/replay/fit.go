@@ -11,9 +11,23 @@ import (
 	"github.com/Temikus/lgtm/internal/verdict"
 )
 
-// minSupport is the fewest labelled PRs on each side, and the fewest PRs a
-// threshold must cover. Below it a precision figure means little.
+// minSupport is the fewest merged PRs a fit needs, and the fewest an
+// approve threshold must approve.
 const minSupport = 5
+
+// minNegatives is the fewest rejected history PRs a fit needs. Below it one
+// false approval is already more than 5%, so the rate can't be estimated.
+const minNegatives = 20
+
+// Rates bound the fit, as shares of each class rather than precision, which
+// depends on how many PRs a repo rejects.
+type Rates struct {
+	MaxFalseApprove float64 // share of rejected history PRs approved
+	MaxFalseDeny    float64 // share of merged and known-good PRs denied
+}
+
+// DefaultRates are the --max-false-approve and --max-false-deny defaults.
+var DefaultRates = Rates{MaxFalseApprove: 0.05, MaxFalseDeny: 0.01}
 
 // Point is one scored, labelled PR.
 type Point struct {
@@ -27,6 +41,9 @@ type Point struct {
 	Values    []verdict.Value
 	Partial   bool
 	Untrusted bool
+	// Listed marks a PR from a known-bad or known-good list. Known-good ones
+	// count towards false denials only; known-bad ones towards neither rate.
+	Listed bool
 }
 
 func (p Point) fitted() bool { return p.Label != Unlabelled && !p.Low }
@@ -42,64 +59,114 @@ func (p Point) Verdict(pol verdict.Policy) verdict.Verdict {
 
 // Fit is the result of the threshold sweep.
 type Fit struct {
-	OK               bool
-	Why              string // when !OK
-	ApproveAt        float64
-	DenyAt           float64
-	ApprovePrecision float64
-	DenyPrecision    float64
-	NLabelled        int
+	OK        bool
+	Why       string // when !OK
+	ApproveAt float64
+	DenyAt    float64
+	// FalseApprove is the share of rejected history PRs approve_at lets in;
+	// FalseDeny the share of merged and known-good PRs deny_at denies.
+	FalseApprove, FalseDeny    float64
+	FalseApproved, FalseDenied int
+	ApproveRecall              float64 // share of merged history PRs approved
+	// Precision at the fitted thresholds, on history. Reported only: it
+	// depends on the base rate.
+	ApprovePrecision, DenyPrecision float64
+	NLabelled, NPositive, NNegative int // history PRs used
+	NListedPositive                 int // known-good PRs in the false-deny rate
 }
 
-// FitThresholds picks approve_at as the lowest aggregate whose approvals
-// reach target precision against positives, and deny_at as the highest
-// aggregate below it whose denials reach target against negatives.
-func FitThresholds(ps []Point, target float64) Fit {
-	var used []Point
-	pos, neg := 0, 0
-	for _, p := range ps {
-		if !p.fitted() {
-			continue
-		}
-		used = append(used, p)
-		if p.Label == Positive {
-			pos++
-		} else {
-			neg++
-		}
-	}
-	f := Fit{NLabelled: len(used)}
-	if pos < minSupport || neg < minSupport {
-		f.Why = fmt.Sprintf("need at least %d positive and %d negative PRs, have %d and %d", minSupport, minSupport, pos, neg)
-		return f
-	}
-	cands := candidates(used)
+// fitSets splits points the way the fit uses them. Listed known-bad PRs
+// and unfitted ones are dropped.
+type fitSets struct{ hist, pos, neg, good []Point }
 
-	for _, t := range cands {
-		if prec, n := precision(used, Positive, func(a float64) bool { return a >= t }); n >= minSupport && prec >= target {
-			f.ApproveAt, f.ApprovePrecision = t, prec
-			break
+func splitFit(ps []Point) fitSets {
+	var s fitSets
+	for _, p := range ps {
+		switch {
+		case !p.fitted():
+		case p.Listed && p.Label == Positive:
+			s.good = append(s.good, p)
+		case p.Listed:
+		case p.Label == Positive:
+			s.hist, s.pos = append(s.hist, p), append(s.pos, p)
+		default:
+			s.hist, s.neg = append(s.hist, p), append(s.neg, p)
 		}
 	}
-	if f.ApproveAt == 0 {
-		f.Why = fmt.Sprintf("no approve threshold reaches %.2f precision", target)
+	return s
+}
+
+// FitThresholds picks approve_at as the lowest aggregate that approves at
+// most r.MaxFalseApprove of rejected history PRs, and deny_at as the highest
+// aggregate below it that denies at most r.MaxFalseDeny of positives.
+func FitThresholds(ps []Point, r Rates) Fit {
+	s := splitFit(ps)
+	f := Fit{NLabelled: len(s.hist), NPositive: len(s.pos), NNegative: len(s.neg), NListedPositive: len(s.good)}
+	switch {
+	case len(s.neg) < minNegatives:
+		f.Why = fmt.Sprintf("need at least %d rejected PRs from history to estimate false approvals, have %d", minNegatives, len(s.neg))
+		return f
+	case len(s.pos) < minSupport:
+		f.Why = fmt.Sprintf("need at least %d merged PRs, have %d", minSupport, len(s.pos))
 		return f
 	}
+	cands := candidates(s.hist)
+	if !f.fitApprove(s, cands, r.MaxFalseApprove) {
+		f.Why = fmt.Sprintf("no approve threshold keeps false approvals at or below %s of %d rejected PRs while approving %d merged ones", pct(r.MaxFalseApprove), len(s.neg), minSupport)
+		return f
+	}
+	f.fitDeny(s, cands, r.MaxFalseDeny)
+	f.OK = true
+	return f
+}
+
+func (f *Fit) fitApprove(s fitSets, cands []float64, maxRate float64) bool {
+	for _, t := range cands {
+		approved := countAt(s.pos, func(a float64) bool { return a >= t })
+		falseApp := countAt(s.neg, func(a float64) bool { return a >= t })
+		if approved >= minSupport && share(falseApp, len(s.neg)) <= maxRate {
+			f.ApproveAt, f.FalseApproved, f.FalseApprove = t, falseApp, share(falseApp, len(s.neg))
+			f.ApproveRecall = share(approved, len(s.pos))
+			f.ApprovePrecision = share(approved, approved+falseApp)
+			return true
+		}
+	}
+	return false
+}
+
+// fitDeny always succeeds: if every candidate denies too many positives,
+// deny_at goes below every PR.
+func (f *Fit) fitDeny(s fitSets, cands []float64, maxRate float64) {
+	positives := append(slices.Clone(s.pos), s.good...)
 	for _, t := range slices.Backward(cands) {
 		if t >= f.ApproveAt {
 			continue
 		}
-		if prec, n := precision(used, Negative, func(a float64) bool { return a <= t }); n >= minSupport && prec >= target {
-			f.DenyAt, f.DenyPrecision = t, prec
-			break
+		denied := countAt(positives, func(a float64) bool { return a <= t })
+		if share(denied, len(positives)) <= maxRate {
+			f.DenyAt, f.FalseDenied, f.FalseDeny = t, denied, share(denied, len(positives))
+			f.DenyPrecision = share(countAt(s.neg, func(a float64) bool { return a <= t }), countAt(s.hist, func(a float64) bool { return a <= t }))
+			return
 		}
 	}
-	if f.DenyAt == 0 {
-		f.Why = fmt.Sprintf("no deny threshold below %.2f reaches %.2f precision", f.ApproveAt, target)
-		return f
+	f.DenyAt = max(slices.Min(candidates(append(s.hist, s.good...)))/2, 1e-4)
+}
+
+func countAt(ps []Point, in func(float64) bool) int {
+	n := 0
+	for _, p := range ps {
+		if in(p.Agg) {
+			n++
+		}
 	}
-	f.OK = true
-	return f
+	return n
+}
+
+func share(n, of int) float64 {
+	if of == 0 {
+		return 0
+	}
+	return float64(n) / float64(of)
 }
 
 // candidates are the distinct aggregates strictly inside (0, 1), which config
@@ -113,22 +180,6 @@ func candidates(ps []Point) []float64 {
 	}
 	slices.Sort(out)
 	return slices.Compact(out)
-}
-
-func precision(ps []Point, want Label, in func(float64) bool) (float64, int) {
-	hit, n := 0, 0
-	for _, p := range ps {
-		if in(p.Agg) {
-			n++
-			if p.Label == want {
-				hit++
-			}
-		}
-	}
-	if n == 0 {
-		return 0, 0
-	}
-	return float64(hit) / float64(n), n
 }
 
 // Metrics compare verdicts with labels at one policy.
@@ -207,7 +258,9 @@ type QuestionReliability struct {
 func Reliability(ps []Point, qs []rubric.Question) []QuestionReliability {
 	var out []QuestionReliability
 	for _, q := range qs {
-		if q.Role == rubric.Info {
+		// A cap question is judged on PRs that try to game it (CapSweep),
+		// not on whether a PR was merged.
+		if q.Role != rubric.Gate {
 			continue
 		}
 		var bins [10]struct {
@@ -245,4 +298,77 @@ func Reliability(ps []Point, qs []rubric.Question) []QuestionReliability {
 	}
 	slices.SortStableFunc(out, func(a, b QuestionReliability) int { return cmp.Compare(b.ECE, a.ECE) })
 	return out
+}
+
+// capSweepAt are the cap_at values the sweep reports, besides the
+// configured one.
+var capSweepAt = []float64{0.1, 0.2, 0.3, 0.4, 0.5}
+
+// CapRow counts the PRs a cap question would hold at one cap_at.
+type CapRow struct {
+	At                 float64
+	MergedHeld, Merged int // merged history PRs
+	GoodHeld, Good     int // known-good listed PRs
+	// Caught counts known-bad listed PRs held, by kind: held, then total.
+	Caught map[string][2]int
+}
+
+// CapSweep is one cap question's rows.
+type CapSweep struct {
+	Question string
+	Rows     []CapRow
+}
+
+// CapSweeps reports each cap question at each sweep value and at capAt.
+// Cap questions are judged on PRs that try to game them, so the listed
+// known-bad PRs matter more here than the merge outcome.
+func CapSweeps(ps []Point, qs []rubric.Question, capAt float64) []CapSweep {
+	ats := slices.Clone(capSweepAt)
+	if !slices.Contains(ats, capAt) {
+		ats = append(ats, capAt)
+		slices.Sort(ats)
+	}
+	var out []CapSweep
+	for _, q := range qs {
+		if q.Role != rubric.Cap {
+			continue
+		}
+		sw := CapSweep{Question: q.ID}
+		for _, at := range ats {
+			sw.Rows = append(sw.Rows, capRow(ps, q.ID, at))
+		}
+		out = append(out, sw)
+	}
+	return out
+}
+
+func capRow(ps []Point, id string, at float64) CapRow {
+	row := CapRow{At: at, Caught: map[string][2]int{}}
+	for _, p := range ps {
+		i := slices.IndexFunc(p.Values, func(v verdict.Value) bool { return v.ID == id && v.Err == nil })
+		if i < 0 || !p.fitted() {
+			continue
+		}
+		held := p.Values[i].Value < at
+		switch {
+		case p.Listed && p.Label == Negative:
+			c := row.Caught[p.Reason]
+			c[1]++
+			if held {
+				c[0]++
+			}
+			row.Caught[p.Reason] = c
+		case p.Listed:
+			row.Good++
+			if held {
+				row.GoodHeld++
+			}
+		case p.Label == Positive:
+			row.Merged++
+			if held {
+				row.MergedHeld++
+			}
+		}
+	}
+	return row
 }

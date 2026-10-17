@@ -73,6 +73,9 @@ func renderCalibration(c config.Calibration) []byte {
 	fmt.Fprintf(&b, "approve_at = %s\n", num(c.ApproveAt))
 	fmt.Fprintf(&b, "deny_at = %s\n", num(c.DenyAt))
 	fmt.Fprintf(&b, "approve_precision = %s\n", num(c.ApprovePrecision))
+	fmt.Fprintf(&b, "n_negative = %d\n", c.NNegative)
+	fmt.Fprintf(&b, "false_approve = %s\n", num(c.FalseApprove))
+	fmt.Fprintf(&b, "false_deny = %s\n", num(c.FalseDeny))
 	return b.Bytes()
 }
 

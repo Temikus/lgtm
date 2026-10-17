@@ -43,6 +43,7 @@ const (
 type Policy struct {
 	ApproveAt float64
 	DenyAt    float64
+	CapAt     float64 // a cap question below this holds approve
 	Margin    float64 // borderline band above ApproveAt
 	Aggregate Aggregate
 }
@@ -97,7 +98,7 @@ func Decide(p Policy, in Input) Result {
 	r.Verdict = r.Raw
 
 	for _, v := range in.Values {
-		if v.Role == rubric.Cap && v.Value < p.ApproveAt {
+		if v.Role == rubric.Cap && v.Value < p.CapAt {
 			r.Caps = append(r.Caps, CapQuestion)
 			break
 		}

@@ -13,7 +13,7 @@ func gate(id string, v float64) Value { return Value{ID: id, Role: rubric.Gate, 
 func capq(id string, v float64) Value { return Value{ID: id, Role: rubric.Cap, Value: v} }
 func info(id string, v float64) Value { return Value{ID: id, Role: rubric.Info, Value: v} }
 
-var policy = Policy{ApproveAt: 0.9, DenyAt: 0.1, Margin: 0.05, Aggregate: Min}
+var policy = Policy{ApproveAt: 0.9, DenyAt: 0.1, CapAt: 0.3, Margin: 0.05, Aggregate: Min}
 
 func consistent() (bool, error)   { return true, nil }
 func inconsistent() (bool, error) { return false, nil }
@@ -33,7 +33,8 @@ func TestDecide(t *testing.T) {
 		{name: "threshold inclusive approve", in: Input{Values: []Value{gate("a", 0.96)}, Consistency: consistent}, want: Approve},
 		{name: "threshold inclusive deny", in: Input{Values: []Value{gate("a", 0.1)}}, want: Deny},
 		{name: "info ignored", in: Input{Values: []Value{gate("a", 0.97), info("described", 0.0)}, Consistency: consistent}, want: Approve},
-		{name: "cap question below approve_at caps approve", in: Input{Values: []Value{gate("a", 0.97), capq("injection", 0.5)}}, want: NeedsHuman, wantCaps: []CapKind{CapQuestion}},
+		{name: "cap question below cap_at caps approve", in: Input{Values: []Value{gate("a", 0.97), capq("injection", 0.25)}}, want: NeedsHuman, wantCaps: []CapKind{CapQuestion}},
+		{name: "cap question above cap_at but below approve_at doesn't cap", in: Input{Values: []Value{gate("a", 0.97), capq("injection", 0.35)}, Consistency: consistent}, want: Approve},
 		{name: "cap question leaves deny alone", in: Input{Values: []Value{gate("a", 0.02), capq("injection", 0.01)}}, want: Deny, wantCaps: []CapKind{CapQuestion}},
 		{name: "cap question never enters aggregate", in: Input{Values: []Value{gate("a", 0.5), capq("injection", 0.01)}}, want: NeedsHuman, wantAgg: 0.5, wantCaps: []CapKind{CapQuestion}},
 		{name: "partial never approves", in: Input{Values: []Value{gate("a", 0.99)}, Partial: true}, want: NeedsHuman, wantCaps: []CapKind{PartialView}},

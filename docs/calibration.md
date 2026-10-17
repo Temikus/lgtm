@@ -300,6 +300,7 @@ There were 206 merged PRs from 19 repos where a maintainer commented on lines th
 - **Sensitive paths:** CI workflows, actions, and CODEOWNERS by default. 34 of the 104 known-bad PRs change `.github/workflows`, against 4% of history PRs.
 - **Size:** more than 1,000 changed lines in files the model sees. That's about 5% of history PRs. Known-bad PRs are small (median 24 lines), so this is about review effort, not attacks.
 - Together they cut home-assistant's approve recall from 49% to 46%.
+- **The cost lands on bot PRs.** 10 of the 40 known-good dependency-bot PRs bump GitHub Actions in `.github/workflows`, and they now need a human. That is deliberate: a compromised action version, as with tj-actions in 2025, arrives as exactly that kind of bump. A repo that trusts its bot can drop `.github/workflows/**` from `sensitive_paths`.
 
 ## Reproducing
 

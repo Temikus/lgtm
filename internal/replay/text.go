@@ -2,6 +2,7 @@ package replay
 
 import (
 	"fmt"
+	"maps"
 	"math"
 	"slices"
 	"strings"
@@ -17,16 +18,17 @@ func (b *textWriter) w(format string, args ...any) { _, _ = fmt.Fprintf(b, forma
 
 // Text renders the report for a terminal. PR titles are untrusted, so they
 // lose control characters.
-func (r *Report) Text(target float64) string {
+func (r *Report) Text() string {
 	var b textWriter
 	r.textHeader(&b)
-	r.textFit(&b, target)
+	r.textFit(&b)
 	r.textVerdicts(&b)
 	r.textReliability(&b)
 	r.textProbe(&b)
 	r.textPerturb(&b)
 	r.textShadow(&b)
 	r.textListed(&b)
+	r.textCapSweep(&b)
 	r.textReview(&b)
 	return b.String()
 }
@@ -51,14 +53,21 @@ func (r *Report) textHeader(b *textWriter) {
 	}
 }
 
-func (r *Report) textFit(b *textWriter, target float64) {
-	b.w("\nThreshold fit (target precision %.2f)", target)
-	if c := r.Calibration; c != nil {
-		b.w("  approve_at %s (precision %.2f) · deny_at %s (precision %.2f) · from %d PRs · %s",
-			num(c.ApproveAt), r.Fit.ApprovePrecision, num(c.DenyAt), r.Fit.DenyPrecision, r.Fit.NLabelled, c.Snapshot)
+func (r *Report) textFit(b *textWriter) {
+	b.w("\nThreshold fit (at most %s of rejected PRs approved, %s of merged PRs denied)", pct(r.Rates.MaxFalseApprove), pct(r.Rates.MaxFalseDeny))
+	c, f := r.Calibration, r.Fit
+	if c == nil {
+		b.w("  Nothing to write: %s.", r.WhyNot)
 		return
 	}
-	b.w("  Nothing to write: %s.", r.WhyNot)
+	b.w("  approve_at %s approves %s of merged PRs and %d of %d rejected ones (%s) · precision %s",
+		num(c.ApproveAt), pct(f.ApproveRecall), f.FalseApproved, f.NNegative, pct(f.FalseApprove), pct(f.ApprovePrecision))
+	denied := fmt.Sprintf("%d of %d merged PRs", f.FalseDenied, f.NPositive)
+	if f.NListedPositive > 0 {
+		denied = fmt.Sprintf("%d of %d merged and known-good PRs", f.FalseDenied, f.NPositive+f.NListedPositive)
+	}
+	b.w("  deny_at %s denies %s (%s) · from %d history PRs · %s", num(c.DenyAt), denied, pct(f.FalseDeny), f.NLabelled, c.Snapshot)
+	b.w("  The false-approve rate rests on %d rejected PRs: each one is %s.", f.NNegative, pct(share(1, f.NNegative)))
 }
 
 func (r *Report) textVerdicts(b *textWriter) {
@@ -178,13 +187,45 @@ func (r *Report) textListed(b *textWriter) {
 		}
 	}
 	slices.Sort(groups)
-	b.w("\nListed PRs, outside the fit: %d scored, %d known-bad approved", len(r.Listed), len(approved))
+	b.w("\nListed PRs: %d scored, %d known-bad approved (known-good ones count towards false denials)", len(r.Listed), len(approved))
 	for _, g := range groups {
 		t := byGroup[g]
 		b.w("  %-22s %d approve · %d needs-human · %d deny · %d not scored · %d held by a cap question", g, t.approve, t.human, t.deny, t.failed, t.capped)
 	}
 	for _, ref := range approved {
 		b.w("  approved known-bad: %s", clean(ref))
+	}
+}
+
+// textCapSweep shows what each cap_at would hold. The configured one is
+// starred.
+func (r *Report) textCapSweep(b *textWriter) {
+	if len(r.CapSweeps) == 0 {
+		return
+	}
+	b.w("\nCap sweep: PRs each cap_at would hold (* is the configured one)")
+	for _, sw := range r.CapSweeps {
+		b.w("  %s", sw.Question)
+		for _, row := range sw.Rows {
+			mark := " "
+			if row.At == r.CurrentPol.CapAt {
+				mark = "*"
+			}
+			line := fmt.Sprintf("  %s %-5s merged held %d of %d", mark, num(row.At), row.MergedHeld, row.Merged)
+			if row.Good > 0 {
+				line += fmt.Sprintf(" · known-good held %d of %d", row.GoodHeld, row.Good)
+			}
+			kinds := slices.Sorted(maps.Keys(row.Caught))
+			if len(kinds) > 0 {
+				var parts []string
+				for _, k := range kinds {
+					c := row.Caught[k]
+					parts = append(parts, fmt.Sprintf("%s %d of %d", clean(k), c[0], c[1]))
+				}
+				line += " · known-bad caught: " + strings.Join(parts, ", ")
+			}
+			b.w("%s", line)
+		}
 	}
 }
 
@@ -211,8 +252,8 @@ func LabelText(repo string, mode LabelMode, ss []Sample) string {
 	pos, neg, low := countLabels(ss)
 	b.w("%s · labels %s · %d closed PRs: %d positive, %d negative, %d low-confidence, %d unlabelled",
 		repo, mode, len(ss), pos, neg, low, len(ss)-pos-neg-low)
-	if pos < minSupport || neg < minSupport {
-		b.w("A fit needs at least %d positive and %d negative PRs, so replay would write nothing.", minSupport, minSupport)
+	if pos < minSupport || neg < minNegatives {
+		b.w("A fit needs at least %d positive and %d negative PRs, so replay would write nothing.", minSupport, minNegatives)
 		if mode == Strict {
 			b.w("Try a longer --since, or --labels maintainer if the repo approves outside GitHub reviews (such as Prow) or closes PRs it rejects.")
 		}

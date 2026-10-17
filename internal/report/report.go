@@ -163,7 +163,7 @@ func bar(v float64) string {
 }
 
 var capText = map[verdict.CapKind]string{
-	verdict.CapQuestion:     "a cap question is below the approve threshold",
+	verdict.CapQuestion:     "a cap question is below `cap_at`",
 	verdict.PartialView:     "LGTM couldn't see the whole diff",
 	verdict.UntrustedAuthor: "the PR is from a fork by an author without write access",
 	verdict.ModelChanged:    "the model version changed since calibration; re-run `lgtm replay --write`",

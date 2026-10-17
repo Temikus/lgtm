@@ -197,7 +197,8 @@ func (s *Snapshot) planTrimmed(p *Plan, c rubric.Context, qs []rubric.Question, 
 	if statsCost > budget {
 		return fmt.Errorf("the file list alone is too large for one call: %w", jev.ErrTooLarge)
 	}
-	perFile := (budget - statsCost) * bytesPerToken / max(len(s.Files), 1)
+	// Each patch also adds its JSON key and a token of rounding.
+	perFile := (budget-statsCost-len(s.Files))*bytesPerToken/max(len(s.Files), 1) - len(`,"patch":""`)
 	trimmed := make([]File, len(s.Files))
 	for i, f := range s.Files {
 		f.Patch = trimPatch(f.Patch, perFile)

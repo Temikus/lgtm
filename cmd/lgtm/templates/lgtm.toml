@@ -15,6 +15,10 @@ mode = "shadow"
 approve_at = 0.9
 deny_at = 0.1
 
+# A cap question (injection) below this holds approve at needs-human.
+# `lgtm replay --lists` shows what each value would hold.
+# cap_at = 0.3
+
 # Fork PRs from authors without write access never get approve.
 trust_forks = false
 
@@ -26,8 +30,9 @@ trust_forks = false
 # [questions.described]
 # gate = true
 #
+# tested is informational by default; make it a gate again with:
 # [questions.tested]
-# enabled = false
+# gate = true
 #
 # [questions.migration_safe]
 # type = "noul"

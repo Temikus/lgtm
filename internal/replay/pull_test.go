@@ -64,7 +64,7 @@ func TestPull_ThenOfflineHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if st.PRs != 12 || st.Labelled != 12 || st.Diffs != 12 || st.Failed != 0 {
+	if st.PRs != fixturePRs || st.Labelled != fixturePRs || st.Diffs != fixturePRs || st.Failed != 0 {
 		t.Errorf("stats = %+v", st)
 	}
 	if err := o.History.Data.Store.Flush(); err != nil {
@@ -73,7 +73,7 @@ func TestPull_ThenOfflineHistory(t *testing.T) {
 	gh.Reset()
 	o.History.Data = Data{Store: storeAt(t, dir), Offline: true}
 	ss, err := History(context.Background(), nil, "o", "r", o.History)
-	if err != nil || len(ss) != 12 {
+	if err != nil || len(ss) != fixturePRs {
 		t.Fatalf("offline history = %d samples, %v", len(ss), err)
 	}
 	if _, ok := o.History.Data.Store.Raw("o/r", ss[0].PR.Number, ss[0].PR.HeadSHA); !ok {

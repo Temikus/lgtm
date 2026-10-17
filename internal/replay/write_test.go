@@ -16,6 +16,7 @@ var newCal = config.Calibration{
 	Model: "typesafe/jev-1.13", Snapshot: "typesafe/jev-1.13-20260917",
 	Date: toml.LocalDate{Year: 2026, Month: 10, Day: 16}, NLabelled: 212,
 	ApproveAt: 0.9312, DenyAt: 0.08, ApprovePrecision: 0.96,
+	NNegative: 30, FalseApprove: 0.0334, FalseDeny: 0.0071,
 }
 
 func TestSetCalibration_ReplacesTableKeepsComments(t *testing.T) {
@@ -49,6 +50,9 @@ n_labelled = 212
 approve_at = 0.9312
 deny_at = 0.08
 approve_precision = 0.96
+n_negative = 30
+false_approve = 0.0334
+false_deny = 0.0071
 
 # Make described a gate.
 [questions.described]

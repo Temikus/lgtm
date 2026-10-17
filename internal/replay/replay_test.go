@@ -41,12 +41,20 @@ func (j *judge) Decide(_ context.Context, req jev.Request) (*jev.Response, error
 	return out, nil
 }
 
+// The replay fixture: fixturePRs closed PRs, the first fixtureMerged merged
+// after an approval and the rest closed after changes were requested, so a
+// fit has its 20 rejected PRs.
+const (
+	fixturePRs    = 30
+	fixtureMerged = 8
+)
+
 func replayServer(t *testing.T) *ghtest.Server {
 	t.Helper()
 	var prs []fakePR
-	for n := 1; n <= 12; n++ {
+	for n := 1; n <= fixturePRs; n++ {
 		p := fakePR{n: n, title: fmt.Sprintf("PR %d", n), author: "ann", closed: time.Duration(n) * time.Hour, lines: 20}
-		if n <= 7 {
+		if n <= fixtureMerged {
 			p.merged, p.reviews = true, []map[string]any{review("bob", "APPROVED", 0)}
 		} else {
 			p.reviews = []map[string]any{review("bob", "CHANGES_REQUESTED", 0)}
@@ -78,7 +86,7 @@ func runOpts(t *testing.T, d jev.Decider) Options {
 		t.Fatal(err)
 	}
 	return Options{
-		Owner: "o", Repo: "r", Config: cfg, Decider: d, BudgetUSD: 1, TargetPrecision: 0.95,
+		Owner: "o", Repo: "r", Config: cfg, Decider: d, BudgetUSD: 1,
 		History: HistoryOptions{Since: t0, Mode: Strict}, Perturb: true,
 		Now: func() time.Time { return time.Date(2026, 10, 16, 9, 0, 0, 0, time.UTC) },
 	}
@@ -90,14 +98,14 @@ func TestRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rep.Points) != 12 || len(rep.Failed) != 0 || rep.BudgetHit {
+	if len(rep.Points) != fixturePRs || len(rep.Failed) != 0 || rep.BudgetHit {
 		t.Fatalf("points %d, failed %v, budget %v", len(rep.Points), rep.Failed, rep.BudgetHit)
 	}
 	c := rep.Calibration
 	if c == nil {
 		t.Fatalf("no calibration: %s", rep.WhyNot)
 	}
-	if c.Snapshot != "typesafe/jev-1.13-20260917" || c.ApproveAt != 0.97 || c.DenyAt != 0.04 || c.NLabelled != 12 || c.Date.String() != "2026-10-16" {
+	if c.Snapshot != "typesafe/jev-1.13-20260917" || c.ApproveAt != 0.97 || c.DenyAt != 0.04 || c.NLabelled != fixturePRs || c.NNegative != fixturePRs-fixtureMerged || c.FalseApprove != 0 || c.Date.String() != "2026-10-16" {
 		t.Errorf("calibration = %+v", c)
 	}
 	if rep.Fitted == nil || rep.Fitted.ApprovePrecision != 1 || rep.Fitted.DenyRecall != 1 {
@@ -112,7 +120,7 @@ func TestRun(t *testing.T) {
 	if len(rep.Probe) == 0 || rep.CostUSD <= 0 {
 		t.Errorf("probe %d, cost %v", len(rep.Probe), rep.CostUSD)
 	}
-	text := rep.Text(0.95)
+	text := rep.Text()
 	for _, want := range []string{"approve_at 0.97", "Shadow mode: 3 labelled PRs", "same PR scored twice", "Content-free probe"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("text missing %q:\n%s", want, text)
@@ -142,7 +150,7 @@ func TestRun_StopsAtBudget(t *testing.T) {
 	if !rep.BudgetHit || len(rep.Points) != 2 || rep.CostUSD > o.BudgetUSD {
 		t.Errorf("budget hit %v, points %d, cost %v", rep.BudgetHit, len(rep.Points), rep.CostUSD)
 	}
-	if !strings.Contains(rep.Text(0.95), "Stopped at the budget") {
+	if !strings.Contains(rep.Text(), "Stopped at the budget") {
 		t.Error("text should say the budget stopped the run")
 	}
 }
@@ -158,8 +166,8 @@ func TestEstimateCost(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 12 PRs at 2 calls each (full and diff context), plus a 2-PR probe.
-	if plain.PRs != 12 || plain.Calls != 28 || plain.Tokens <= 0 || plain.USD <= 0 {
+	// 2 calls a PR (full and diff context), plus a 2-PR probe.
+	if plain.PRs != fixturePRs || plain.Calls != 2*fixturePRs+4 || plain.Tokens <= 0 || plain.USD <= 0 {
 		t.Errorf("estimate = %+v", plain)
 	}
 	withPerturb, err := EstimateCost(context.Background(), gh.Client, Data{}, o.Config, ss, true, 10)

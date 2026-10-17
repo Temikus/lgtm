@@ -19,7 +19,8 @@ import (
 type replayOpts struct {
 	since, labels, cfgPath  string
 	maxPRs, sample          int
-	budget, target          float64
+	budget                  float64
+	rates                   replay.Rates
 	write, perturb, dryRun  bool
 	offline, rescore, lists bool
 	data                    dataOpts
@@ -48,7 +49,8 @@ func newReplayCmd() *cobra.Command {
 	f.StringVar(&o.since, "since", "90d", "how far back to read closed PRs (e.g. 90d, 720h)")
 	f.IntVar(&o.maxPRs, "max-prs", 300, "most PRs to read")
 	f.Float64Var(&o.budget, "budget-usd", 2, "stop calling the model before spend passes this")
-	f.Float64Var(&o.target, "target-precision", 0.95, "precision approve and deny must reach")
+	f.Float64Var(&o.rates.MaxFalseApprove, "max-false-approve", replay.DefaultRates.MaxFalseApprove, "most of the rejected PRs approve_at may approve")
+	f.Float64Var(&o.rates.MaxFalseDeny, "max-false-deny", replay.DefaultRates.MaxFalseDeny, "most of the merged (and known-good) PRs deny_at may deny")
 	f.StringVar(&o.labels, "labels", string(replay.Strict), "strict, maintainer, or merged (see above)")
 	f.BoolVar(&o.write, "write", false, "store the fitted thresholds in [calibration]")
 	f.BoolVar(&o.perturb, "perturb", false, "run the robustness suite on PRs near approve_at")
@@ -68,7 +70,7 @@ func (o replayOpts) run(cmd *cobra.Command, ref string) error {
 	if !ok || owner == "" || repo == "" || strings.Contains(repo, "/") {
 		return fmt.Errorf("%q: want owner/repo", ref)
 	}
-	age, mode, err := replayFlags(o.since, o.labels, o.target)
+	age, mode, err := replayFlags(o.since, o.labels, o.rates)
 	if err != nil {
 		return err
 	}
@@ -96,7 +98,7 @@ func (o replayOpts) run(cmd *cobra.Command, ref string) error {
 
 	rep, err := replay.Run(ctx, gh, replay.Options{
 		Owner: owner, Repo: repo, Config: cfg, Decider: d,
-		BudgetUSD: o.budget, TargetPrecision: o.target, History: hist,
+		BudgetUSD: o.budget, Rates: o.rates, History: hist,
 		Perturb: o.perturb, PerturbSample: o.sample,
 		Progress: cmd.ErrOrStderr(),
 		Data:     data, Rescore: o.rescore, Lists: o.lists,
@@ -104,7 +106,7 @@ func (o replayOpts) run(cmd *cobra.Command, ref string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := fmt.Fprint(cmd.OutOrStdout(), rep.Text(o.target)); err != nil {
+	if _, err := fmt.Fprint(cmd.OutOrStdout(), rep.Text()); err != nil {
 		return err
 	}
 	return o.save(cmd, rep)
@@ -156,7 +158,7 @@ func (o replayOpts) save(cmd *cobra.Command, rep *replay.Report) error {
 	return err
 }
 
-func replayFlags(since, labels string, target float64) (time.Duration, replay.LabelMode, error) {
+func replayFlags(since, labels string, rates replay.Rates) (time.Duration, replay.LabelMode, error) {
 	age, err := parseAge(since)
 	if err != nil {
 		return 0, "", err
@@ -165,8 +167,8 @@ func replayFlags(since, labels string, target float64) (time.Duration, replay.La
 	if err != nil {
 		return 0, "", err
 	}
-	if target <= 0 || target >= 1 {
-		return 0, "", fmt.Errorf("--target-precision must be between 0 and 1, got %v", target)
+	if !(0 < rates.MaxFalseApprove && rates.MaxFalseApprove < 1) || !(0 < rates.MaxFalseDeny && rates.MaxFalseDeny < 1) {
+		return 0, "", fmt.Errorf("--max-false-approve and --max-false-deny must be between 0 and 1, got %v and %v", rates.MaxFalseApprove, rates.MaxFalseDeny)
 	}
 	return age, mode, nil
 }

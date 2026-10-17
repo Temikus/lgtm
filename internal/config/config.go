@@ -46,6 +46,11 @@ var DefaultExclude = []string{
 	"vendor/**", "**/*.pb.go", "**/*.min.*",
 }
 
+// DefaultCapAt holds approve when a cap question scores below it. Injection
+// attempts scored 0.14 or less and ordinary PRs 0.41 or more
+// (docs/calibration.md).
+const DefaultCapAt = 0.3
+
 // Calibration is written by `lgtm replay --write`.
 type Calibration struct {
 	Model            string         `toml:"model"`
@@ -55,6 +60,9 @@ type Calibration struct {
 	ApproveAt        float64        `toml:"approve_at"`
 	DenyAt           float64        `toml:"deny_at"`
 	ApprovePrecision float64        `toml:"approve_precision"`
+	FalseApprove     float64        `toml:"false_approve"` // share of rejected PRs approve_at would approve
+	FalseDeny        float64        `toml:"false_deny"`    // share of merged PRs deny_at would deny
+	NNegative        int            `toml:"n_negative"`
 }
 
 // Config is a loaded, validated config with defaults filled in.
@@ -64,6 +72,7 @@ type Config struct {
 	Mode              Mode
 	ApproveAt         float64
 	DenyAt            float64
+	CapAt             float64
 	Aggregate         verdict.Aggregate
 	TrustForks        bool
 	Exclude           []string
@@ -80,6 +89,7 @@ type file struct {
 	Mode              *string                    `toml:"mode"`
 	ApproveAt         *float64                   `toml:"approve_at"`
 	DenyAt            *float64                   `toml:"deny_at"`
+	CapAt             *float64                   `toml:"cap_at"`
 	Aggregate         *string                    `toml:"aggregate"`
 	TrustForks        *bool                      `toml:"trust_forks"`
 	Exclude           []string                   `toml:"exclude"`
@@ -118,6 +128,7 @@ func Load(data []byte) (*Config, error) {
 		Mode:              Mode(deref(f.Mode, string(Shadow))),
 		ApproveAt:         deref(f.ApproveAt, 0.9),
 		DenyAt:            deref(f.DenyAt, 0.1),
+		CapAt:             deref(f.CapAt, DefaultCapAt),
 		Aggregate:         verdict.Aggregate(deref(f.Aggregate, string(verdict.Min))),
 		TrustForks:        deref(f.TrustForks, false),
 		Exclude:           f.Exclude,
@@ -185,7 +196,7 @@ func (c *Config) Thresholds() (approveAt, denyAt float64) {
 // Policy is the verdict policy in effect.
 func (c *Config) Policy() verdict.Policy {
 	a, d := c.Thresholds()
-	return verdict.Policy{ApproveAt: a, DenyAt: d, Margin: c.BorderlineMargin, Aggregate: c.Aggregate}
+	return verdict.Policy{ApproveAt: a, DenyAt: d, CapAt: c.CapAt, Margin: c.BorderlineMargin, Aggregate: c.Aggregate}
 }
 
 // Snapshot is the dated model version the thresholds in effect were fitted
@@ -225,6 +236,9 @@ func (c *Config) validate() error {
 	}
 	if err := c.validateCalibration(); err != nil {
 		return err
+	}
+	if approve, _ := c.Thresholds(); !(0 < c.CapAt && c.CapAt < 1 && c.CapAt <= approve) {
+		return fmt.Errorf("need 0 < cap_at <= approve_at < 1, got cap_at=%v approve_at=%v", c.CapAt, approve)
 	}
 	return c.validateRubric()
 }

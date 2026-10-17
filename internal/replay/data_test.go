@@ -178,11 +178,14 @@ func TestRun_Lists(t *testing.T) {
 	if len(rep.Listed) != 1 || rep.Listed[0].Kind != "attack" || rep.Listed[0].Label != Negative || rep.Listed[0].Verdict != "deny" {
 		t.Fatalf("listed = %+v", rep.Listed)
 	}
-	if len(rep.Points) != 12 {
+	if len(rep.Points) != fixturePRs {
 		t.Errorf("known-bad PRs joined the fit: %d points", len(rep.Points))
 	}
-	if !strings.Contains(rep.Text(0.95), "Listed PRs, outside the fit: 1 scored, 0 known-bad approved") {
-		t.Errorf("text:\n%s", rep.Text(0.95))
+	if text := rep.Text(); !strings.Contains(text, "Cap sweep") || !strings.Contains(text, "known-bad caught: attack 1 of 1") {
+		t.Errorf("cap sweep missing:\n%s", text)
+	}
+	if !strings.Contains(rep.Text(), "Listed PRs: 1 scored, 0 known-bad approved") {
+		t.Errorf("text:\n%s", rep.Text())
 	}
 
 	o.Data = Data{}

@@ -2,6 +2,7 @@ package replay
 
 import (
 	"math"
+	"strings"
 	"testing"
 
 	"github.com/Temikus/lgtm/internal/rubric"
@@ -20,47 +21,107 @@ func points(label Label, aggs ...float64) []Point {
 	return out
 }
 
+func listed(p Point) Point { p.Listed = true; return p }
+
 func TestFitThresholds(t *testing.T) {
 	var ps []Point
-	ps = append(ps, points(Positive, 0.99, 0.98, 0.97, 0.96, 0.95, 0.94, 0.93, 0.92, 0.91, 0.90, 0.60)...)
-	ps = append(ps, points(Negative, 0.02, 0.03, 0.05, 0.08, 0.10, 0.30, 0.85)...)
+	// 30 merged PRs from 0.70 to 0.99, and 20 rejected ones, one of them at
+	// 0.95 among the merged.
+	for i := range 30 {
+		ps = append(ps, pt(Positive, 0.70+float64(i)*0.01))
+	}
+	ps = append(ps, points(Negative, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.10, 0.11,
+		0.20, 0.30, 0.40, 0.50, 0.55, 0.60, 0.62, 0.64, 0.66, 0.95)...)
 	// Low-confidence and unlabelled points must not move the fit.
 	low := pt(Negative, 0.99)
 	low.Low = true
 	ps = append(ps, low, pt(Unlabelled, 0.99))
 
-	f := FitThresholds(ps, 0.95)
+	f := FitThresholds(ps, DefaultRates)
 	if !f.OK {
 		t.Fatalf("fit failed: %s", f.Why)
 	}
-	// 0.90 is the lowest threshold whose approvals are all positive; 0.85
-	// would let a negative in (10/11 = 0.91).
-	if f.ApproveAt != 0.90 || f.ApprovePrecision != 1 {
-		t.Errorf("approve_at = %v (precision %v), want 0.90", f.ApproveAt, f.ApprovePrecision)
+	// The lowest threshold that approves at most 5% of 20 negatives (one) is
+	// 0.70: it lets in only the 0.95. 0.66 would let in two.
+	if !near(f.ApproveAt, 0.70) || f.FalseApproved != 1 || !near(f.FalseApprove, 0.05) {
+		t.Errorf("approve_at = %v, false approvals %d (%v), want 0.70 and 1", f.ApproveAt, f.FalseApproved, f.FalseApprove)
 	}
-	// 0.30 is the highest deny threshold with only negatives at or below
-	// it; 0.60 would deny a positive.
-	if f.DenyAt != 0.30 {
-		t.Errorf("deny_at = %v, want 0.30", f.DenyAt)
+	if !near(f.ApproveRecall, 1) {
+		t.Errorf("recall = %v, want every merged PR approved", f.ApproveRecall)
 	}
-	if f.NLabelled != 18 {
-		t.Errorf("n_labelled = %d, want 18", f.NLabelled)
+	// No merged PR is below 0.70, so deny_at is the highest candidate under
+	// it: 0.66.
+	if !near(f.DenyAt, 0.66) || f.FalseDenied != 0 {
+		t.Errorf("deny_at = %v, false denials %d, want 0.66 and 0", f.DenyAt, f.FalseDenied)
+	}
+	if f.NLabelled != 50 || f.NNegative != 20 || f.NPositive != 30 {
+		t.Errorf("counts = %d/%d/%d", f.NLabelled, f.NPositive, f.NNegative)
+	}
+}
+
+// Precision chases the base rate: with 96% merged, approving almost
+// everything reaches 95% precision. Rates per class don't.
+func TestFitThresholds_IgnoresBaseRate(t *testing.T) {
+	var ps []Point
+	for i := range 480 {
+		ps = append(ps, pt(Positive, 0.05+0.9*float64(i)/480))
+	}
+	for i := range 20 {
+		ps = append(ps, pt(Negative, 0.05+0.9*float64(i)/20))
+	}
+	f := FitThresholds(ps, DefaultRates)
+	if !f.OK {
+		t.Fatalf("fit failed: %s", f.Why)
+	}
+	if f.ApproveAt < 0.85 || f.FalseApproved > 1 {
+		t.Errorf("approve_at = %v with %d false approvals; scores that don't separate must not approve low", f.ApproveAt, f.FalseApproved)
+	}
+}
+
+func TestFitThresholds_Lists(t *testing.T) {
+	var ps []Point
+	for i := range 20 {
+		ps = append(ps, pt(Positive, 0.90+float64(i)*0.004), pt(Negative, 0.10+float64(i)*0.01))
+	}
+	base := FitThresholds(ps, DefaultRates)
+	if !base.OK {
+		t.Fatal(base.Why)
+	}
+	// A known-bad listed PR at 0.99 would be a false approval in history,
+	// but listed negatives count towards neither rate.
+	withBad := FitThresholds(append(ps, listed(pt(Negative, 0.99))), DefaultRates)
+	if withBad.ApproveAt != base.ApproveAt || withBad.NNegative != 20 {
+		t.Errorf("a listed negative moved the fit: %+v", withBad)
+	}
+	// Known-good listed PRs count towards false denials: one at 0.05 among
+	// 21 positives is 4.8%, so deny_at must drop below it.
+	withGood := FitThresholds(append(ps, listed(pt(Positive, 0.05))), DefaultRates)
+	if withGood.DenyAt >= 0.05 || withGood.FalseDenied != 0 {
+		t.Errorf("deny_at = %v, false denials %d; want below the known-good PR", withGood.DenyAt, withGood.FalseDenied)
+	}
+	if withGood.ApproveAt != base.ApproveAt {
+		t.Errorf("a listed positive moved approve_at: %v vs %v", withGood.ApproveAt, base.ApproveAt)
 	}
 }
 
 func TestFitThresholds_Refuses(t *testing.T) {
+	var many []Point
+	for range 25 {
+		many = append(many, pt(Positive, 0.5))
+	}
 	tests := []struct {
-		name string
-		ps   []Point
+		name, why string
+		ps        []Point
 	}{
-		{"no negatives", points(Positive, 0.99, 0.98, 0.97, 0.96, 0.95, 0.5)},
-		{"too few negatives", append(points(Positive, 0.99, 0.98, 0.97, 0.96, 0.95), points(Negative, 0.01, 0.02)...)},
-		{"scores don't separate", append(points(Positive, 0.5, 0.6, 0.7, 0.8, 0.9), points(Negative, 0.5, 0.6, 0.7, 0.8, 0.9)...)},
+		{"no negatives", "20 rejected", points(Positive, 0.99, 0.98, 0.97, 0.96, 0.95, 0.5)},
+		{"too few negatives", "20 rejected", append(points(Positive, 0.99, 0.98, 0.97, 0.96, 0.95), points(Negative, 0.01, 0.02)...)},
+		{"scores don't separate", "false approvals", append(many, points(Negative, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5)...)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if f := FitThresholds(tt.ps, 0.95); f.OK {
-				t.Errorf("fit = %+v, want refusal", f)
+			f := FitThresholds(tt.ps, DefaultRates)
+			if f.OK || !strings.Contains(f.Why, tt.why) {
+				t.Errorf("fit = %+v, want refusal mentioning %q", f, tt.why)
 			}
 		})
 	}
@@ -109,3 +170,36 @@ func TestReliability(t *testing.T) {
 }
 
 func near(a, b float64) bool { return math.Abs(a-b) < 1e-9 }
+
+func TestCapSweeps(t *testing.T) {
+	capPt := func(label Label, v float64, kind string, isListed bool) Point {
+		return Point{Label: label, Reason: kind, Listed: isListed, Agg: 0.9, Values: []verdict.Value{
+			{ID: "g", Role: rubric.Gate, Value: 0.9}, {ID: "injection", Role: rubric.Cap, Value: v},
+		}}
+	}
+	ps := []Point{
+		capPt(Positive, 0.45, "", false), capPt(Positive, 0.8, "", false),
+		capPt(Positive, 0.25, "ai-text", true),
+		capPt(Negative, 0.01, "injection", true), capPt(Negative, 0.15, "injection", true), capPt(Negative, 0.9, "attack", true),
+	}
+	qs := []rubric.Question{{ID: "g", Role: rubric.Gate}, {ID: "injection", Role: rubric.Cap}}
+	sw := CapSweeps(ps, qs, 0.35)
+	if len(sw) != 1 || sw[0].Question != "injection" || len(sw[0].Rows) != len(capSweepAt)+1 {
+		t.Fatalf("sweeps = %+v", sw)
+	}
+	var at035, at05 CapRow
+	for _, r := range sw[0].Rows {
+		switch r.At {
+		case 0.35:
+			at035 = r
+		case 0.5:
+			at05 = r
+		}
+	}
+	if at035.MergedHeld != 0 || at035.GoodHeld != 1 || at035.Caught["injection"] != [2]int{2, 2} || at035.Caught["attack"] != [2]int{0, 1} {
+		t.Errorf("at 0.35: %+v", at035)
+	}
+	if at05.MergedHeld != 1 || at05.Merged != 2 {
+		t.Errorf("at 0.5: %+v", at05)
+	}
+}

@@ -57,8 +57,8 @@ func TestLoad_PRDExample(t *testing.T) {
 			gates++
 		}
 	}
-	if gates != 6 {
-		t.Errorf("gates = %d, want 6 (4 default + described + migration_safe)", gates)
+	if gates != 5 {
+		t.Errorf("gates = %d, want 5 (3 default + described + migration_safe)", gates)
 	}
 }
 
@@ -72,6 +72,9 @@ func TestLoad_EmptyGivesDefaults(t *testing.T) {
 	}
 	if a, d := c.Thresholds(); a != 0.9 || d != 0.1 {
 		t.Errorf("thresholds = %v/%v", a, d)
+	}
+	if p := c.Policy(); p.CapAt != 0.3 {
+		t.Errorf("cap_at = %v, want 0.3", p.CapAt)
 	}
 	if len(c.Exclude) == 0 || len(c.Rubric) != len(rubric.Defaults()) {
 		t.Errorf("exclude = %v, rubric = %d", c.Exclude, len(c.Rubric))
@@ -107,6 +110,9 @@ func TestLoad_Rejects(t *testing.T) {
 		"approve at one":     {"approve_at = 1.0", "approve_at"},
 		"deny at zero":       {"deny_at = 0.0", "deny_at"},
 		"bad aggregate":      {`aggregate = "max"`, "aggregate"},
+		"cap at zero":        {"cap_at = 0.0", "cap_at"},
+		"cap at one":         {"cap_at = 1.0", "cap_at"},
+		"cap above approve":  {"approve_at = 0.5\ndeny_at = 0.1\ncap_at = 0.6", "cap_at"},
 		"no gates": {`
 [questions.aligned]
 gate = false

@@ -9,6 +9,7 @@ Score **0.42** (approve at ≥ 0.90, deny at ≤ 0.10)
 | scoped | `██████████` | 0.97 |
 | malicious (veto) | `██████████` | 0.97 |
 | hygiene (cap) | `██████████` | 0.97 |
+| breaks (cap) | `██████████` | 0.97 |
 | injection (cap) | `██████████` | 0.97 |
 
 Shadow mode: nothing is gated.

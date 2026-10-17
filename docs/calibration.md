@@ -245,6 +245,34 @@ The 22 attacks below were collected after the `malicious` wording was written, t
 - **Branch names and PR titles injected into workflows** (Ultralytics, 2024) leave no diff at all.
 - **Lockfiles are excluded from the model by default.** asyncapi's payload hid under 15,000 lockfile lines, but its JS files gave it away. A deterministic check now holds any PR whose lockfile resolves a package from outside the usual registries. On the stored data it held 2 of 233 PRs with lockfile changes, both git dependencies. No real attack in the set uses this technique, so the check is untested against one.
 
+## Breakage
+
+The second safety question is "will this break things". Rejected PRs were the wrong label for it, because most are turned down for approach or fit. A PR that was merged and then reverted because it broke something is a better one.
+
+### Sample
+
+- **Reverted: 132 PRs from 2025-10 to 2026-09.** They come from 22 established repos, including home-assistant, next.js, dotnet/runtime, vscode, airflow, deno, grafana, electron, and cpython. Each was merged and later reverted by a PR whose text cites breakage (broke, crash, regression, failing, panic). Revert PRs that cite no reason were left out. A revert isn't proof of a bug, and many bugs get fixed forward instead, so this is a weak label.
+- **Kept: 264 merged PRs** from the same repos and window, two per reverted one, with no revert in the title. A few may have been reverted later, outside the search.
+- **Holdout: 106 reverted and 211 kept PRs from 2025-01 to 2025-09**, scored once after the choices below.
+
+### Results
+
+AUC is the chance that a kept PR scores higher than a reverted one. 0.5 is chance, and the 95% uncertainty at these sizes is about ±0.06.
+
+| | In-sample | Holdout |
+|---|---|---|
+| `breaks` (new) | 0.70 | 0.73 |
+| aggregate (min of `aligned`, `scoped`, `malicious`) | 0.69 | 0.65 |
+| lines added, files touched, churn (no model) | 0.57 to 0.59 | |
+| touches tests | 0.46 | |
+
+- **`breaks` beats chance in every repo** with at least 7 reverts (0.59 to 0.89). It correlates only 0.33 with the aggregate, so it adds information.
+- **Size is a weak signal on its own.** Reverted PRs touch tests *more* often than kept ones (67% against 59%), which matches `tested` pointing the wrong way.
+- **`breaks` is a cap at 0.7.** It holds 40% of reverted and 11% of kept PRs on the holdout. On home-assistant's merged history it holds 15 of 354 (4%).
+- **With the cap, the default rubric approves 14% of reverted PRs and 25% of kept ones** on the holdout.
+- **Adding `breaks` didn't move the safety results:** no legitimate PR fell below `veto_at`, and the same attacks were caught.
+- **The research agrees.** Size, spread, and CI results are the best-supported breakage signals, and LLMs judging a diff alone have low precision (5 to 26% across benchmarks). Precision matters less for a cap than for a deny: a false hold costs a human look.
+
 ## Reproducing
 
 The [local dataset](../README.md#calibrating) keeps these runs, so a rerun with new wording asks the model only about the calls that changed:

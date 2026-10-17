@@ -36,7 +36,7 @@ Each question gives a 0–1 value. The default aggregate is the minimum over gat
 
 A **veto** question denies on its own: `malicious` below `veto_at` (default 0.4) denies whatever the aggregate says. It asks about deliberate harm, such as exfiltration, backdoors, hidden payloads, and weakened CI safeguards. `veto_at` is global, not fitted per repo; it is set from real attacks and hard legitimate PRs ([docs/calibration.md](docs/calibration.md#safety)).
 
-Any of these holds an approve at needs-human: a cap question is below its `cap_at` (`injection` at the global default 0.3, `hygiene` at 0.8), LGTM couldn't see the whole diff, a lockfile pulls a package from outside the usual registries (npm, PyPI, crates.io, RubyGems, pub.dev; `lockfile_registries` adds your own), the diff sets a command to run on its own on developers' machines (a VS Code task on folder open, or a Claude, Gemini, or Cursor agent hook), the PR is from a fork by an author without write access, the replies name a different model version than the one the thresholds were calibrated on, or a borderline score changed when `choice` options were reordered. Provider errors, timeouts, and oversized input also give needs-human. Nothing defaults to approve.
+Any of these holds an approve at needs-human: a cap question is below its `cap_at` (`injection` at the global default 0.3, `hygiene` at 0.8, `breaks` at 0.7), LGTM couldn't see the whole diff, a lockfile pulls a package from outside the usual registries (npm, PyPI, crates.io, RubyGems, pub.dev; `lockfile_registries` adds your own), the diff sets a command to run on its own on developers' machines (a VS Code task on folder open, or a Claude, Gemini, or Cursor agent hook), the PR is from a fork by an author without write access, the replies name a different model version than the one the thresholds were calibrated on, or a borderline score changed when `choice` options were reordered. Provider errors, timeouts, and oversized input also give needs-human. Nothing defaults to approve.
 
 In **enforce** mode, the check run fails on deny and needs-human, and the job exits non-zero. A needs-human check passes once someone with write access approves the scored commit. Enforce mode needs a `[calibration]` table from `lgtm replay --write`, because raw model probabilities aren't calibrated. Use it alongside required reviewers or CODEOWNERS, never instead of them.
 
@@ -50,6 +50,7 @@ In **enforce** mode, the check run fails on deny and needs-human, and the job ex
 | `scoped` | yes/no | gate | everything |
 | `malicious` | yes/no | veto | diff only |
 | `hygiene` | yes/no | cap | diff only |
+| `breaks` | yes/no | cap | diff only |
 | `tested` | yes/no | info | diff only |
 | `injection` | yes/no | cap | everything |
 | `described` | yes/no | info | everything |

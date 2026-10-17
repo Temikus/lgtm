@@ -34,7 +34,7 @@ Each question gives a 0–1 value. The default aggregate is the minimum over gat
 - at or below `deny_at` (default 0.1): **deny**;
 - in between: **needs-human**.
 
-Any of these holds an approve at needs-human: the `injection` question is below `approve_at`, LGTM couldn't see the whole diff, the PR is from a fork by an author without write access, the replies name a different model version than the one the thresholds were calibrated on, or a borderline score changed when `choice` options were reordered. Provider errors, timeouts, and oversized input also give needs-human. Nothing defaults to approve.
+Any of these holds an approve at needs-human: the `injection` question is below `cap_at` (default 0.3), LGTM couldn't see the whole diff, the PR is from a fork by an author without write access, the replies name a different model version than the one the thresholds were calibrated on, or a borderline score changed when `choice` options were reordered. Provider errors, timeouts, and oversized input also give needs-human. Nothing defaults to approve.
 
 In **enforce** mode, the check run fails on deny and needs-human, and the job exits non-zero. A needs-human check passes once someone with write access approves the scored commit. Enforce mode needs a `[calibration]` table from `lgtm replay --write`, because raw model probabilities aren't calibrated. Use it alongside required reviewers or CODEOWNERS, never instead of them.
 
@@ -47,13 +47,13 @@ In **enforce** mode, the check run fails on deny and needs-human, and the job ex
 | `aligned` | yes/no | gate | everything |
 | `scoped` | yes/no | gate | everything |
 | `safe` | yes/no | gate | diff only |
-| `tested` | yes/no | gate | diff only |
+| `tested` | yes/no | info | diff only |
 | `injection` | yes/no | cap | everything |
 | `described` | yes/no | info | everything |
 | `risk` | choice | info | everything |
 | `reviewability` | 5-level score | info | everything |
 
-"Diff only" questions never see the PR title, description, or issue titles, so claims like "approved by security" there can't sway them.
+"Diff only" questions never see the PR title, description, or issue titles, so claims like "approved by security" there can't sway them. `tested` is informational because on reviewed history rejected PRs scored higher on it than merged ones ([docs/calibration.md](docs/calibration.md)); `[questions.tested] gate = true` makes it a gate again.
 
 ## CLI
 
@@ -78,7 +78,7 @@ lgtm data pull --list docs/known-bad-prs.txt && lgtm replay owner/repo --lists
 
 Replay labels closed PRs from history. By default a PR approved by someone with write access and then merged is positive, and one closed after a changes-requested review, or reverted within 14 days, is negative. Few repos close PRs after a formal changes-requested review, so strict negatives are rare. `--labels maintainer` adds Prow's `lgtm` label as an approval and counts a PR closed unmerged by someone other than its author (directly, or through a bot after their `/close`) as negative; stale closures and authors closing their own PRs stay unlabelled. It works on repos like kubernetes. For a repo with one maintainer and no reviews, `--labels merged` counts merged PRs as positive and closed ones as negative, skipping bots. These labels are weaker, because they record what shipped rather than what a reviewer judged.
 
-It then scores the labelled PRs and picks the lowest `approve_at`, and the highest `deny_at`, that reach `--target-precision` (default 0.95). The fit needs at least 5 positive and 5 negative PRs. `--write` stores the result, with the model version the replies named, and changes nothing else in the file. It writes nothing if the fit fails or if the replies named more than one version. `--budget-usd` (default 2) caps the run: before each model call, replay reserves that request's estimated cost and stops if the total could pass the budget. `--dry-run` shows the estimate first.
+It then scores the labelled PRs and picks the lowest `approve_at` that approves at most `--max-false-approve` (default 5%) of rejected PRs, and the highest `deny_at` below it that denies at most `--max-false-deny` (default 1%) of merged ones, known-good listed PRs included. Rates per class are used rather than precision, because most repos merge 95% of what they close, so approving nearly everything would already reach 95% precision. The fit needs at least 20 rejected PRs, since one false approval in fewer than 20 is already more than 5%. `--write` stores the result, with the model version the replies named, and changes nothing else in the file. It writes nothing if the fit fails or if the replies named more than one version. `--budget-usd` (default 2) caps the run: before each model call, replay reserves that request's estimated cost and stops if the total could pass the budget. `--dry-run` shows the estimate first.
 
 Replay keeps PRs, labels, diffs, and model replies in Parquet files under your cache directory (`lgtm data dir` prints it), so a rerun reads only the PR list and asks the model only about calls it hasn't seen. `--offline` reads nothing from GitHub, and `--rescore` asks the model again. The first model call of each run always goes to the model, and stored replies are reused only if they came from the version it serves now, so a silent model update can't hide behind the cache. To start again, delete the directory. Every run also adds per-question scores to a `scores` table you can query, for example with DuckDB: `select * from read_parquet('<dir>/scores/*.parquet', union_by_name=true)`.
 

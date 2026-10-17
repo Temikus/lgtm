@@ -31,16 +31,17 @@ var DefaultRates = Rates{MaxFalseApprove: 0.05, MaxFalseDeny: 0.01}
 
 // Point is one scored, labelled PR.
 type Point struct {
-	PR        prstate.PR
-	Number    int
-	Title     string
-	Label     Label
-	Low       bool
-	Reason    string
-	Agg       float64
-	Values    []verdict.Value
-	Partial   bool
-	Untrusted bool
+	PR         prstate.PR
+	Number     int
+	Title      string
+	Label      Label
+	Low        bool
+	Reason     string
+	Agg        float64
+	Values     []verdict.Value
+	Partial    bool
+	LockSource bool
+	Untrusted  bool
 	// Listed marks a PR from a known-bad or known-good list. Known-good ones
 	// count towards false denials only; known-bad ones towards neither rate.
 	Listed bool
@@ -52,7 +53,7 @@ func (p Point) fitted() bool { return p.Label != Unlabelled && !p.Low }
 // replay treats it as passed.
 func (p Point) Verdict(pol verdict.Policy) verdict.Verdict {
 	return verdict.Decide(pol, verdict.Input{
-		Values: p.Values, Partial: p.Partial, Untrusted: p.Untrusted,
+		Values: p.Values, Partial: p.Partial, LockSource: p.LockSource, Untrusted: p.Untrusted,
 		Consistency: func() (bool, error) { return true, nil },
 	}).Verdict
 }

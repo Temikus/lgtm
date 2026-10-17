@@ -52,12 +52,15 @@ type Result struct {
 	Excluded  []prstate.File
 	Unseen    []prstate.Unseen
 	Partial   []string
-	Untrusted bool
-	TrustErr  error
-	Served    []string // distinct model versions the replies named
-	Usage     jev.Usage
-	CostUSD   float64
-	Calls     int
+	// LockSources are lockfile package sources outside the allowed
+	// registries; any of them holds approve.
+	LockSources []prstate.LockSource
+	Untrusted   bool
+	TrustErr    error
+	Served      []string // distinct model versions the replies named
+	Usage       jev.Usage
+	CostUSD     float64
+	Calls       int
 }
 
 // Score never returns an error: every failure becomes a needs-human result
@@ -90,6 +93,10 @@ func ScoreSnapshot(ctx context.Context, gh *github.Client, snap *prstate.Snapsho
 
 	r.Untrusted, r.TrustErr = untrusted(ctx, gh, snap.PR, opts)
 	in.Untrusted = r.Untrusted
+	r.LockSources = slices.DeleteFunc(slices.Clone(snap.LockSources), func(s prstate.LockSource) bool {
+		return slices.Contains(cfg.LockfileRegistries, s.Host)
+	})
+	in.LockSource = len(r.LockSources) > 0
 
 	lim := opts.Limits
 	if lim == (prstate.Limits{}) {

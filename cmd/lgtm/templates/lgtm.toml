@@ -22,6 +22,10 @@ deny_at = 0.1
 # A veto question (malicious) below this denies, whatever the score.
 # veto_at = 0.4
 
+# A lockfile change that resolves a package from outside npm, PyPI,
+# crates.io, RubyGems, or pub.dev holds approve. Add private registries:
+# lockfile_registries = ["npm.example.com"]
+
 # Fork PRs from authors without write access never get approve.
 trust_forks = false
 

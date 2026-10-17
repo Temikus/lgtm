@@ -220,7 +220,7 @@ So `safe` became two questions:
 - **Binary payloads go to needs-human, not deny.** That covers xz's test files, which have no patch, so the view is partial.
 - **A dependency's tarball** isn't in the diff (event-stream). The PR goes to needs-human.
 - **Branch names and PR titles injected into workflows** (Ultralytics, 2024) leave no diff at all.
-- **Lockfiles are excluded by default**, so a swapped `resolved` URL isn't seen. asyncapi's payload hid under 15,000 lockfile lines, but its JS files gave it away.
+- **Lockfiles are excluded from the model by default.** asyncapi's payload hid under 15,000 lockfile lines, but its JS files gave it away. A deterministic check now holds any PR whose lockfile resolves a package from outside the usual registries. On the stored data it held 2 of 233 PRs with lockfile changes, both git dependencies. No real attack in the set uses this technique, so the check is untested against one.
 
 ## Reproducing
 

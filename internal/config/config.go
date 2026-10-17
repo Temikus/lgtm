@@ -73,38 +73,42 @@ type Calibration struct {
 
 // Config is a loaded, validated config with defaults filled in.
 type Config struct {
-	Provider          string
-	Model             string
-	Mode              Mode
-	ApproveAt         float64
-	DenyAt            float64
-	CapAt             float64
-	VetoAt            float64
-	Aggregate         verdict.Aggregate
-	TrustForks        bool
-	Exclude           []string
-	BorderlineMargin  float64
-	AllowUncalibrated bool
-	Calibration       *Calibration
-	Rubric            []rubric.Question
+	Provider   string
+	Model      string
+	Mode       Mode
+	ApproveAt  float64
+	DenyAt     float64
+	CapAt      float64
+	VetoAt     float64
+	Aggregate  verdict.Aggregate
+	TrustForks bool
+	// LockfileRegistries are hosts, besides prstate.DefaultRegistries, that
+	// a lockfile may resolve packages from without holding the PR.
+	LockfileRegistries []string
+	Exclude            []string
+	BorderlineMargin   float64
+	AllowUncalibrated  bool
+	Calibration        *Calibration
+	Rubric             []rubric.Question
 }
 
 // file is the TOML shape. Pointers tell "unset" from zero.
 type file struct {
-	Provider          *string                    `toml:"provider"`
-	Model             *string                    `toml:"model"`
-	Mode              *string                    `toml:"mode"`
-	ApproveAt         *float64                   `toml:"approve_at"`
-	DenyAt            *float64                   `toml:"deny_at"`
-	CapAt             *float64                   `toml:"cap_at"`
-	VetoAt            *float64                   `toml:"veto_at"`
-	Aggregate         *string                    `toml:"aggregate"`
-	TrustForks        *bool                      `toml:"trust_forks"`
-	Exclude           []string                   `toml:"exclude"`
-	BorderlineMargin  *float64                   `toml:"borderline_margin"`
-	AllowUncalibrated *bool                      `toml:"allow_uncalibrated"`
-	Calibration       *Calibration               `toml:"calibration"`
-	Questions         map[string]rubric.Override `toml:"questions"`
+	Provider           *string                    `toml:"provider"`
+	Model              *string                    `toml:"model"`
+	Mode               *string                    `toml:"mode"`
+	ApproveAt          *float64                   `toml:"approve_at"`
+	DenyAt             *float64                   `toml:"deny_at"`
+	CapAt              *float64                   `toml:"cap_at"`
+	VetoAt             *float64                   `toml:"veto_at"`
+	Aggregate          *string                    `toml:"aggregate"`
+	TrustForks         *bool                      `toml:"trust_forks"`
+	LockfileRegistries []string                   `toml:"lockfile_registries"`
+	Exclude            []string                   `toml:"exclude"`
+	BorderlineMargin   *float64                   `toml:"borderline_margin"`
+	AllowUncalibrated  *bool                      `toml:"allow_uncalibrated"`
+	Calibration        *Calibration               `toml:"calibration"`
+	Questions          map[string]rubric.Override `toml:"questions"`
 }
 
 // Load parses and validates config. Empty input gives the defaults.
@@ -131,19 +135,20 @@ func Load(data []byte) (*Config, error) {
 	}
 
 	c := &Config{
-		Provider:          deref(f.Provider, "openrouter"),
-		Model:             deref(f.Model, DefaultModel),
-		Mode:              Mode(deref(f.Mode, string(Shadow))),
-		ApproveAt:         deref(f.ApproveAt, 0.9),
-		DenyAt:            deref(f.DenyAt, 0.1),
-		CapAt:             deref(f.CapAt, DefaultCapAt),
-		VetoAt:            deref(f.VetoAt, DefaultVetoAt),
-		Aggregate:         verdict.Aggregate(deref(f.Aggregate, string(verdict.Min))),
-		TrustForks:        deref(f.TrustForks, false),
-		Exclude:           f.Exclude,
-		BorderlineMargin:  deref(f.BorderlineMargin, 0.05),
-		AllowUncalibrated: deref(f.AllowUncalibrated, false),
-		Calibration:       f.Calibration,
+		Provider:           deref(f.Provider, "openrouter"),
+		Model:              deref(f.Model, DefaultModel),
+		Mode:               Mode(deref(f.Mode, string(Shadow))),
+		ApproveAt:          deref(f.ApproveAt, 0.9),
+		DenyAt:             deref(f.DenyAt, 0.1),
+		CapAt:              deref(f.CapAt, DefaultCapAt),
+		VetoAt:             deref(f.VetoAt, DefaultVetoAt),
+		Aggregate:          verdict.Aggregate(deref(f.Aggregate, string(verdict.Min))),
+		TrustForks:         deref(f.TrustForks, false),
+		LockfileRegistries: f.LockfileRegistries,
+		Exclude:            f.Exclude,
+		BorderlineMargin:   deref(f.BorderlineMargin, 0.05),
+		AllowUncalibrated:  deref(f.AllowUncalibrated, false),
+		Calibration:        f.Calibration,
 	}
 	if c.Exclude == nil {
 		c.Exclude = slices.Clone(DefaultExclude)

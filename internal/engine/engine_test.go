@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"errors"
+	"slices"
 	"sync"
 	"testing"
 
@@ -214,5 +215,27 @@ deny_at = 0.1
 	r = Score(context.Background(), gh.Client, pr, Options{Config: cfg, Decider: &fakeDecider{served: "typesafe/jev-1.13-20261101"}})
 	if r.Verdict.Verdict != verdict.Approve {
 		t.Fatalf("no snapshot: verdict = %+v", r.Verdict)
+	}
+}
+
+func TestScore_LockfileSourceHolds(t *testing.T) {
+	raw := &prstate.Raw{
+		PR: prstate.PR{Owner: "o", Repo: "r", Number: 1, BaseSHA: "b", HeadSHA: "h", Title: "Bump deps", Body: "Routine bump.", Author: "ann"},
+		Files: []prstate.File{
+			{Path: "main.go", Status: "modified", Additions: 1, Changes: 1, Patch: "+package main"},
+			{Path: "package-lock.json", Status: "modified", Additions: 1, Changes: 1, Patch: `+      "resolved": "https://npm.corp.example/a-1.0.0.tgz",`},
+		},
+	}
+	snap, err := raw.Snapshot(config.DefaultExclude)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := ScoreSnapshot(context.Background(), nil, snap, Options{Config: load(t, ""), Decider: &fakeDecider{}})
+	if r.Verdict.Verdict != verdict.NeedsHuman || !slices.Contains(r.Verdict.Caps, verdict.LockfileSource) || len(r.LockSources) != 1 {
+		t.Errorf("verdict %+v, lock sources %+v", r.Verdict, r.LockSources)
+	}
+	cfg := load(t, `lockfile_registries = ["npm.corp.example"]`)
+	if r := ScoreSnapshot(context.Background(), nil, snap, Options{Config: cfg, Decider: &fakeDecider{}}); r.Verdict.Verdict != verdict.Approve {
+		t.Errorf("an allowed registry still held: %+v", r.Verdict)
 	}
 }

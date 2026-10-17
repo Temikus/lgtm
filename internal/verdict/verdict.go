@@ -35,6 +35,7 @@ type CapKind string
 const (
 	CapQuestion     CapKind = "cap-question"
 	PartialView     CapKind = "partial-view"
+	LockfileSource  CapKind = "lockfile-source"
 	UntrustedAuthor CapKind = "untrusted-author"
 	ModelChanged    CapKind = "model-changed"
 	Borderline      CapKind = "borderline-inconsistent"
@@ -63,10 +64,13 @@ type Value struct {
 
 // Input is everything the verdict depends on.
 type Input struct {
-	Values    []Value
-	Failure   error // provider error, timeout, oversized input, empty file set
-	Partial   bool
-	Untrusted bool
+	Values  []Value
+	Failure error // provider error, timeout, oversized input, empty file set
+	Partial bool
+	// LockSource means a lockfile change pulls a package from outside the
+	// allowed registries.
+	LockSource bool
+	Untrusted  bool
 	// ModelChanged means a reply named a dated model version other than
 	// the one the thresholds were calibrated on.
 	ModelChanged bool
@@ -87,7 +91,7 @@ type Result struct {
 }
 
 // Decide applies the aggregate and thresholds, then a veto, then caps in
-// order: cap question, partial view, untrusted author, model change,
+// order: cap question, partial view, lockfile source, untrusted author, model change,
 // borderline consistency. A veto question below VetoAt denies outright. A
 // cap turns approve into needs-human and leaves deny alone.
 func Decide(p Policy, in Input) Result {
@@ -121,6 +125,9 @@ func caps(p Policy, in Input) []CapKind {
 	}
 	if in.Partial {
 		out = append(out, PartialView)
+	}
+	if in.LockSource {
+		out = append(out, LockfileSource)
 	}
 	if in.Untrusted {
 		out = append(out, UntrustedAuthor)

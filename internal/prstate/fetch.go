@@ -89,6 +89,9 @@ type Snapshot struct {
 	// Partial lists reasons the model's view is incomplete. A partial view
 	// never approves.
 	Partial []string
+	// LockSources are lockfile package sources outside DefaultRegistries,
+	// read from patches before exclude globs drop them.
+	LockSources []LockSource
 }
 
 // Fetch reads the diff for pr and applies exclude globs.
@@ -136,7 +139,7 @@ func FetchRaw(ctx context.Context, gh *github.Client, pr PR) (*Raw, error) {
 // Snapshot applies exclude globs. It returns ErrNoFiles, with the snapshot,
 // when nothing is left to score.
 func (r *Raw) Snapshot(exclude []string) (*Snapshot, error) {
-	s := &Snapshot{PR: r.PR, Partial: slices.Clone(r.Partial)}
+	s := &Snapshot{PR: r.PR, Partial: slices.Clone(r.Partial), LockSources: lockSources(r.Files)}
 	for _, file := range r.Files {
 		if matchAny(exclude, file.Path) {
 			file.Patch = ""

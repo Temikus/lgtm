@@ -92,7 +92,7 @@ func TestScore_CleanPRApproves(t *testing.T) {
 		if !ok {
 			t.Fatalf("state type %T", req.State)
 		}
-		_, hasSafe := req.Questions["safe"]
+		_, hasSafe := req.Questions["malicious"]
 		if hasSafe && st.PR != nil {
 			t.Error("the diff-context call must not carry PR prose")
 		}
@@ -104,7 +104,7 @@ func TestScore_CleanPRApproves(t *testing.T) {
 
 func TestScore_LowGateDenies(t *testing.T) {
 	gh, pr := fakeGitHub(t, false, "write")
-	r := Score(context.Background(), gh.Client, pr, Options{Config: load(t, ""), Decider: &fakeDecider{p: map[string]float64{"safe": 0.02}}})
+	r := Score(context.Background(), gh.Client, pr, Options{Config: load(t, ""), Decider: &fakeDecider{p: map[string]float64{"malicious": 0.02}}})
 	if r.Verdict.Verdict != verdict.Deny {
 		t.Errorf("verdict = %+v", r.Verdict)
 	}

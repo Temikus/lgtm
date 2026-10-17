@@ -14,9 +14,13 @@ type Role string
 
 const (
 	Gate Role = "gate" // enters the aggregate
-	Cap  Role = "cap"  // below approve_at caps approve at needs-human; never denies
+	Veto Role = "veto" // a gate that also denies below veto_at, whatever the aggregate
+	Cap  Role = "cap"  // below cap_at caps approve at needs-human; never denies
 	Info Role = "info" // reported only
 )
+
+// Gating reports whether the role enters the aggregate.
+func (r Role) Gating() bool { return r == Gate || r == Veto }
 
 // Context decides which part of the PR state a question sees.
 type Context string
@@ -38,6 +42,7 @@ type Question struct {
 	Pass      []string // choice: options whose probability mass counts as a pass
 	Invert    bool     // score: 1 at the first level instead of the last
 	Weight    float64  // weighted_mean aggregate; 0 means 1
+	CapAt     float64  // cap questions: holds approve below this; 0 means the global cap_at
 }
 
 // Normalise maps an answer to [0,1], where 1 is the passing end.
@@ -98,7 +103,7 @@ func Validate(qs []Question) error {
 
 func validateUse(q Question) error {
 	switch q.Role {
-	case Gate, Cap, Info:
+	case Gate, Veto, Cap, Info:
 	default:
 		return fmt.Errorf("question %q: unknown role %q", q.ID, q.Role)
 	}
@@ -131,6 +136,7 @@ type Override struct {
 	Type         *string      `toml:"type"`
 	Instructions *string      `toml:"instructions"`
 	Gate         *bool        `toml:"gate"`
+	Veto         *bool        `toml:"veto"`
 	Cap          *bool        `toml:"cap"`
 	Context      *string      `toml:"context"`
 	DiffLocal    *bool        `toml:"diff_local"`
@@ -139,6 +145,7 @@ type Override struct {
 	Pass         []string     `toml:"pass"`
 	Invert       *bool        `toml:"invert"`
 	Weight       *float64     `toml:"weight"`
+	CapAt        *float64     `toml:"cap_at"`
 }
 
 // Merge applies overrides to the defaults. Defaults keep their order; new
@@ -180,8 +187,8 @@ func Merge(defaults []Question, overrides map[string]Override) ([]Question, erro
 }
 
 func apply(q Question, ov Override) (Question, error) {
-	if ov.Gate != nil && ov.Cap != nil && *ov.Gate && *ov.Cap {
-		return q, fmt.Errorf("question %q: gate and cap are exclusive", q.ID)
+	if on(ov.Gate)+on(ov.Veto)+on(ov.Cap) > 1 {
+		return q, fmt.Errorf("question %q: gate, veto, and cap are exclusive", q.ID)
 	}
 	if ov.Type != nil && jev.QuestionType(*ov.Type) != q.Type {
 		q.Type = jev.QuestionType(*ov.Type)
@@ -192,6 +199,7 @@ func apply(q Question, ov Override) (Question, error) {
 	setIf(&q.DiffLocal, ov.DiffLocal)
 	setIf(&q.Invert, ov.Invert)
 	setIf(&q.Weight, ov.Weight)
+	setIf(&q.CapAt, ov.CapAt)
 	if ov.Context != nil {
 		q.Context = Context(*ov.Context)
 	}
@@ -208,21 +216,33 @@ func apply(q Question, ov Override) (Question, error) {
 	if q.Weight < 0 {
 		return q, fmt.Errorf("question %q: weight must not be negative", q.ID)
 	}
+	if q.CapAt < 0 || q.CapAt >= 1 {
+		return q, fmt.Errorf("question %q: cap_at must be in (0, 1), got %v", q.ID, q.CapAt)
+	}
 	return q, nil
 }
 
-// role applies gate/cap overrides. Turning off a question's current role
-// makes it informational.
+// role applies gate/veto/cap overrides. Turning off a question's current
+// role makes it informational.
 func role(cur Role, ov Override) Role {
 	switch {
-	case ov.Gate != nil && *ov.Gate:
+	case on(ov.Gate) == 1:
 		return Gate
-	case ov.Cap != nil && *ov.Cap:
+	case on(ov.Veto) == 1:
+		return Veto
+	case on(ov.Cap) == 1:
 		return Cap
-	case (ov.Gate != nil && cur == Gate) || (ov.Cap != nil && cur == Cap):
+	case (ov.Gate != nil && cur == Gate) || (ov.Veto != nil && cur == Veto) || (ov.Cap != nil && cur == Cap):
 		return Info
 	}
 	return cur
+}
+
+func on(b *bool) int {
+	if b != nil && *b {
+		return 1
+	}
+	return 0
 }
 
 func setIf[T any](dst *T, src *T) {

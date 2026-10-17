@@ -165,6 +165,63 @@ These choices came from the same PRs they were measured on. A holdout of two rep
 - So `approve_at` must be fitted per repo, and the false-approve bound is what keeps it honest. At home-assistant's 0.94, the holdout repos would approve 5 of 16 rejected PRs (31%).
 - The cap threshold holds up: no merged holdout PR scores under 0.3 on `injection` (lowest 0.35), and every known injection attempt does.
 
+## Safety
+
+On 2026-10-17 the goal became safety first: get "is this malicious" right before tuning anything else.
+
+### Sample
+
+- **Real attacks: 38 counted, across 10 techniques.** They come from public incident write-ups, and each diff was checked by hand ([known-bad-prs.txt](known-bad-prs.txt)).
+
+  | Technique | Count | Examples |
+  |---|---|---|
+  | `workflow-exfil` | 22 | Megalodon, GhostAction |
+  | `prt-exfil` | 7 | prt-scan, Rspack, stripe-samples, asyncapi |
+  | `obfuscated-code` | 2 | asyncapi's padded JS, exo |
+  | `token-exfil`, `runner-backdoor`, `ci-tamper`, `hidden-blob`, `agent-sabotage`, `maintainer-sabotage`, `backdoor-rce` | 1 each | Nx, Shai-Hulud 2.0, SAP cap-js, gpt-pilot, Amazon Q, colors.js, php-src |
+
+- **Reported, not counted:**
+  - 2 subtle sabotage (xz);
+  - 3 changes that open a hole without a payload;
+  - 4 blind spots;
+  - 20 injection attempts and 15 spam PRs.
+- **Legitimate: 1,014 PRs.**
+  - 376 from home-assistant's history. All count as legitimate, rejected or not.
+  - 157 known-good.
+  - 262 hard-good ([hard-good-prs.txt](hard-good-prs.txt)): merged, approved PRs that touch what an attack would. That means workflows with secrets, auth, TLS, install scripts, subprocesses, telemetry, and base64 blobs.
+- **No synthetic attacks.** We chose not to write attack payloads, so every figure rests on real ones.
+
+### The old `safe` mixed malice with mistakes
+
+At 0.3, `safe` caught 36 of 38 attacks but also scored 4 hard-good PRs below 0.3. Two of them commit credentials, one ships a curl-to-shell installer, and one adds OAuth config. A committed key is a mistake that needs a human, not malice to deny.
+
+So `safe` became two questions:
+- **`malicious`** is a veto: below `veto_at`, the PR is denied whatever the aggregate.
+- **`hygiene`** is a cap with its own `cap_at` of 0.8: committed secrets, injectable code, and disabled TLS or auth hold a PR for a human.
+
+### Results
+
+`veto_at` 0.4 is the highest sweep value with no legitimate PR below it. Scoring everything with the new questions cost $0.24.
+
+| | Below `veto_at` | Verdict |
+|---|---|---|
+| Counted attacks | 37 of 38 | 38 denied, none approved |
+| Legitimate PRs | 0 of 1,014 (lowest 0.43) | |
+
+- **Bounds.** 1 miss in 38 bounds the real miss rate at 14% (95%, Clopper-Pearson). 0 false denials in 1,014 bounds the false-deny rate at 0.4%.
+- **The miss.** colors.js's endless loop scored above 0.4 on `malicious`, but other gates still denied it.
+- **The margin is thin.** At 0.5 the veto would deny 2 legitimate PRs, which scored 0.43 and 0.45.
+- **`hygiene` at 0.8** holds 4 of 354 merged history PRs (1%) and 129 of 417 known-good ones. The known-good ones held are mostly the hard ones (auth, TLS, install scripts), where a human look is the point.
+- **Not a clean holdout.** The `malicious` wording was written after the first measurement. Its clause on weakened CI safeguards came from the cap-js miss. New attacks are the real test: about 10 more with no new miss would bring the bound under 10%.
+
+### Blind spots
+
+- **Subtle sabotage is approved.** xz's one-character Landlock break (`tukaani-project/xz@328c52da`) looks like an honest build fix.
+- **Binary payloads go to needs-human, not deny.** That covers xz's test files, which have no patch, so the view is partial.
+- **A dependency's tarball** isn't in the diff (event-stream). The PR goes to needs-human.
+- **Branch names and PR titles injected into workflows** (Ultralytics, 2024) leave no diff at all.
+- **Lockfiles are excluded by default**, so a swapped `resolved` URL isn't seen. asyncapi's payload hid under 15,000 lockfile lines, but its JS files gave it away.
+
 ## Reproducing
 
 The [local dataset](../README.md#calibrating) keeps these runs, so a rerun with new wording asks the model only about the calls that changed:

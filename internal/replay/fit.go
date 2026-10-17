@@ -252,7 +252,7 @@ type QuestionReliability struct {
 	Bins []Bin // non-empty bins only
 }
 
-// Reliability covers gate and cap questions. History labels whole PRs, so
+// Reliability covers gate and veto questions. History labels whole PRs, so
 // this shows how well each question tracks the PR outcome, not whether its
 // own answer was right.
 func Reliability(ps []Point, qs []rubric.Question) []QuestionReliability {
@@ -260,7 +260,7 @@ func Reliability(ps []Point, qs []rubric.Question) []QuestionReliability {
 	for _, q := range qs {
 		// A cap question is judged on PRs that try to game it (CapSweep),
 		// not on whether a PR was merged.
-		if q.Role != rubric.Gate {
+		if !q.Role.Gating() {
 			continue
 		}
 		var bins [10]struct {
@@ -302,7 +302,7 @@ func Reliability(ps []Point, qs []rubric.Question) []QuestionReliability {
 
 // capSweepAt are the cap_at values the sweep reports, besides the
 // configured one.
-var capSweepAt = []float64{0.1, 0.2, 0.3, 0.4, 0.5}
+var capSweepAt = []float64{0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9}
 
 // CapRow counts the PRs a cap question would hold at one cap_at.
 type CapRow struct {
@@ -313,27 +313,33 @@ type CapRow struct {
 	Caught map[string][2]int
 }
 
-// CapSweep is one cap question's rows.
+// CapSweep is one cap question's rows. At is its configured cap_at.
 type CapSweep struct {
 	Question string
+	At       float64
 	Rows     []CapRow
 }
 
-// CapSweeps reports each cap question at each sweep value and at capAt.
-// Cap questions are judged on PRs that try to game them, so the listed
-// known-bad PRs matter more here than the merge outcome.
+// CapSweeps reports each cap question at each sweep value and at its own
+// cap_at, which is capAt unless the question sets one. Cap questions are
+// judged on PRs that try to game them, so the listed known-bad PRs matter
+// more here than the merge outcome.
 func CapSweeps(ps []Point, qs []rubric.Question, capAt float64) []CapSweep {
-	ats := slices.Clone(capSweepAt)
-	if !slices.Contains(ats, capAt) {
-		ats = append(ats, capAt)
-		slices.Sort(ats)
-	}
 	var out []CapSweep
 	for _, q := range qs {
 		if q.Role != rubric.Cap {
 			continue
 		}
-		sw := CapSweep{Question: q.ID}
+		at := capAt
+		if q.CapAt > 0 {
+			at = q.CapAt
+		}
+		ats := slices.Clone(capSweepAt)
+		if !slices.Contains(ats, at) {
+			ats = append(ats, at)
+			slices.Sort(ats)
+		}
+		sw := CapSweep{Question: q.ID, At: at}
 		for _, at := range ats {
 			sw.Rows = append(sw.Rows, capRow(ps, q.ID, at))
 		}

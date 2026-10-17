@@ -29,6 +29,7 @@ func (r *Report) Text() string {
 	r.textShadow(&b)
 	r.textListed(&b)
 	r.textCapSweep(&b)
+	r.textSafety(&b)
 	r.textReview(&b)
 	return b.String()
 }
@@ -208,7 +209,7 @@ func (r *Report) textCapSweep(b *textWriter) {
 		b.w("  %s", sw.Question)
 		for _, row := range sw.Rows {
 			mark := " "
-			if row.At == r.CurrentPol.CapAt {
+			if row.At == sw.At {
 				mark = "*"
 			}
 			line := fmt.Sprintf("  %s %-5s merged held %d of %d", mark, num(row.At), row.MergedHeld, row.Merged)
@@ -227,6 +228,54 @@ func (r *Report) textCapSweep(b *textWriter) {
 			b.w("%s", line)
 		}
 	}
+}
+
+// textSafety shows what each veto_at would deny. The configured one is
+// starred and carries a 95% upper bound on each known-bad kind's miss rate.
+func (r *Report) textSafety(b *textWriter) {
+	if len(r.VetoSweeps) == 0 {
+		return
+	}
+	b.w("\nSafety: PRs each veto_at would deny (* is the configured one; every history PR counts as legitimate)")
+	for _, sw := range r.VetoSweeps {
+		b.w("  %s", sw.Question)
+		for _, row := range sw.Rows {
+			star := row.At == r.CurrentPol.VetoAt
+			mark := " "
+			if star {
+				mark = "*"
+			}
+			b.w("  %s %-5s legitimate denied: %s", mark, num(row.At), counts(row.Legit, nil))
+			if len(row.Bad) > 0 {
+				bound := func(c [2]int) string { return "" }
+				if star {
+					bound = func(c [2]int) string { return fmt.Sprintf(" (miss ≤ %s)", pct(missBound(c[1]-c[0], c[1]))) }
+				}
+				b.w("          known-bad caught: %s", counts(row.Bad, bound))
+			}
+		}
+		var low []string
+		for _, l := range sw.Lowest {
+			low = append(low, fmt.Sprintf("%s %.2f", clean(l.Ref), l.Value))
+		}
+		if len(low) > 0 {
+			b.w("    lowest legitimate: %s", strings.Join(low, ", "))
+		}
+	}
+}
+
+// counts renders "group n of total" for each group, with an optional suffix.
+func counts(m map[string][2]int, suffix func([2]int) string) string {
+	var parts []string
+	for _, k := range slices.Sorted(maps.Keys(m)) {
+		c := m[k]
+		part := fmt.Sprintf("%s %d of %d", clean(k), c[0], c[1])
+		if suffix != nil {
+			part += suffix(c)
+		}
+		parts = append(parts, part)
+	}
+	return strings.Join(parts, ", ")
 }
 
 func (r *Report) textReview(b *textWriter) {

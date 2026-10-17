@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 
 	"github.com/Temikus/lgtm/internal/rubric"
 )
@@ -44,6 +45,7 @@ type Policy struct {
 	ApproveAt float64
 	DenyAt    float64
 	CapAt     float64 // a cap question below this holds approve
+	VetoAt    float64 // a veto question below this denies
 	Margin    float64 // borderline band above ApproveAt
 	Aggregate Aggregate
 }
@@ -55,6 +57,7 @@ type Value struct {
 	Role   rubric.Role
 	Value  float64
 	Weight float64 // weighted_mean only; 0 means 1
+	CapAt  float64 // cap questions: 0 means Policy.CapAt
 	Err    error
 }
 
@@ -79,13 +82,14 @@ type Result struct {
 	Raw       Verdict   // from thresholds alone, before caps
 	Aggregate float64   // over gating questions
 	Caps      []CapKind // every cap whose condition held, in rule order
+	Vetoed    string    // the veto question that forced deny, if any
 	Failure   error
 }
 
-// Decide applies the aggregate, thresholds, then caps in order: cap
-// question, partial view, untrusted author, model change, borderline
-// consistency. A cap
-// turns approve into needs-human and leaves deny alone.
+// Decide applies the aggregate and thresholds, then a veto, then caps in
+// order: cap question, partial view, untrusted author, model change,
+// borderline consistency. A veto question below VetoAt denies outright. A
+// cap turns approve into needs-human and leaves deny alone.
 func Decide(p Policy, in Input) Result {
 	if in.Failure != nil {
 		return Result{Verdict: NeedsHuman, Raw: NeedsHuman, Failure: in.Failure}
@@ -96,22 +100,10 @@ func Decide(p Policy, in Input) Result {
 	}
 	r := Result{Aggregate: agg, Raw: threshold(p, agg)}
 	r.Verdict = r.Raw
-
-	for _, v := range in.Values {
-		if v.Role == rubric.Cap && v.Value < p.CapAt {
-			r.Caps = append(r.Caps, CapQuestion)
-			break
-		}
+	if r.Vetoed = vetoed(p, in.Values); r.Vetoed != "" {
+		r.Verdict = Deny
 	}
-	if in.Partial {
-		r.Caps = append(r.Caps, PartialView)
-	}
-	if in.Untrusted {
-		r.Caps = append(r.Caps, UntrustedAuthor)
-	}
-	if in.ModelChanged {
-		r.Caps = append(r.Caps, ModelChanged)
-	}
+	r.Caps = caps(p, in)
 	if r.Verdict == Approve && len(r.Caps) == 0 && agg < p.ApproveAt+p.Margin && !holds(in.Consistency) {
 		r.Caps = append(r.Caps, Borderline)
 	}
@@ -119,6 +111,42 @@ func Decide(p Policy, in Input) Result {
 		r.Verdict = NeedsHuman
 	}
 	return r
+}
+
+// caps returns the caps that don't need a model call, in rule order.
+func caps(p Policy, in Input) []CapKind {
+	var out []CapKind
+	if slices.ContainsFunc(in.Values, func(v Value) bool { return v.Role == rubric.Cap && v.Value < v.capAt(p) }) {
+		out = append(out, CapQuestion)
+	}
+	if in.Partial {
+		out = append(out, PartialView)
+	}
+	if in.Untrusted {
+		out = append(out, UntrustedAuthor)
+	}
+	if in.ModelChanged {
+		out = append(out, ModelChanged)
+	}
+	return out
+}
+
+func (v Value) capAt(p Policy) float64 {
+	if v.CapAt > 0 {
+		return v.CapAt
+	}
+	return p.CapAt
+}
+
+// vetoed returns the lowest veto question below p.VetoAt.
+func vetoed(p Policy, values []Value) string {
+	id, low := "", p.VetoAt
+	for _, v := range values {
+		if v.Role == rubric.Veto && v.Value < low {
+			id, low = v.ID, v.Value
+		}
+	}
+	return id
 }
 
 func holds(check func() (bool, error)) bool {
@@ -153,7 +181,7 @@ func aggregate(kind Aggregate, values []Value) (float64, error) {
 		if math.IsNaN(v.Value) || v.Value < 0 || v.Value > 1 {
 			return 0, fmt.Errorf("question %q: value %v outside [0,1]", v.ID, v.Value)
 		}
-		if v.Role == rubric.Gate {
+		if v.Role.Gating() {
 			gates = append(gates, v)
 		}
 	}

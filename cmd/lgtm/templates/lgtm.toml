@@ -19,6 +19,9 @@ deny_at = 0.1
 # `lgtm replay --lists` shows what each value would hold.
 # cap_at = 0.3
 
+# A veto question (malicious) below this denies, whatever the score.
+# veto_at = 0.4
+
 # Fork PRs from authors without write access never get approve.
 trust_forks = false
 
@@ -29,6 +32,10 @@ trust_forks = false
 # Turn a default question into a gate, switch one off, or add your own.
 # [questions.described]
 # gate = true
+#
+# hygiene holds approve below its own cap_at (default 0.8):
+# [questions.hygiene]
+# cap_at = 0.7
 #
 # tested is informational by default; make it a gate again with:
 # [questions.tested]

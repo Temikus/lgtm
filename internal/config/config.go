@@ -51,6 +51,12 @@ var DefaultExclude = []string{
 // (docs/calibration.md).
 const DefaultCapAt = 0.3
 
+// DefaultVetoAt denies when a veto question scores below it, whatever the
+// aggregate. It is global, not fitted per repo: what makes a diff malicious
+// doesn't depend on the repo. It is the highest sweep value with no
+// legitimate PR below it; the lowest scored 0.43 (docs/calibration.md#safety).
+const DefaultVetoAt = 0.4
+
 // Calibration is written by `lgtm replay --write`.
 type Calibration struct {
 	Model            string         `toml:"model"`
@@ -73,6 +79,7 @@ type Config struct {
 	ApproveAt         float64
 	DenyAt            float64
 	CapAt             float64
+	VetoAt            float64
 	Aggregate         verdict.Aggregate
 	TrustForks        bool
 	Exclude           []string
@@ -90,6 +97,7 @@ type file struct {
 	ApproveAt         *float64                   `toml:"approve_at"`
 	DenyAt            *float64                   `toml:"deny_at"`
 	CapAt             *float64                   `toml:"cap_at"`
+	VetoAt            *float64                   `toml:"veto_at"`
 	Aggregate         *string                    `toml:"aggregate"`
 	TrustForks        *bool                      `toml:"trust_forks"`
 	Exclude           []string                   `toml:"exclude"`
@@ -129,6 +137,7 @@ func Load(data []byte) (*Config, error) {
 		ApproveAt:         deref(f.ApproveAt, 0.9),
 		DenyAt:            deref(f.DenyAt, 0.1),
 		CapAt:             deref(f.CapAt, DefaultCapAt),
+		VetoAt:            deref(f.VetoAt, DefaultVetoAt),
 		Aggregate:         verdict.Aggregate(deref(f.Aggregate, string(verdict.Min))),
 		TrustForks:        deref(f.TrustForks, false),
 		Exclude:           f.Exclude,
@@ -196,7 +205,7 @@ func (c *Config) Thresholds() (approveAt, denyAt float64) {
 // Policy is the verdict policy in effect.
 func (c *Config) Policy() verdict.Policy {
 	a, d := c.Thresholds()
-	return verdict.Policy{ApproveAt: a, DenyAt: d, CapAt: c.CapAt, Margin: c.BorderlineMargin, Aggregate: c.Aggregate}
+	return verdict.Policy{ApproveAt: a, DenyAt: d, CapAt: c.CapAt, VetoAt: c.VetoAt, Margin: c.BorderlineMargin, Aggregate: c.Aggregate}
 }
 
 // Snapshot is the dated model version the thresholds in effect were fitted
@@ -237,10 +246,27 @@ func (c *Config) validate() error {
 	if err := c.validateCalibration(); err != nil {
 		return err
 	}
-	if approve, _ := c.Thresholds(); !(0 < c.CapAt && c.CapAt < 1 && c.CapAt <= approve) {
-		return fmt.Errorf("need 0 < cap_at <= approve_at < 1, got cap_at=%v approve_at=%v", c.CapAt, approve)
+	if err := c.validateCuts(); err != nil {
+		return err
 	}
 	return c.validateRubric()
+}
+
+// validateCuts checks cap_at and veto_at against the approve_at in effect.
+func (c *Config) validateCuts() error {
+	approve, _ := c.Thresholds()
+	if !(0 < c.CapAt && c.CapAt < 1 && c.CapAt <= approve) {
+		return fmt.Errorf("need 0 < cap_at <= approve_at < 1, got cap_at=%v approve_at=%v", c.CapAt, approve)
+	}
+	if !(0 < c.VetoAt && c.VetoAt < approve) {
+		return fmt.Errorf("need 0 < veto_at < approve_at < 1, got veto_at=%v approve_at=%v", c.VetoAt, approve)
+	}
+	for _, q := range c.Rubric {
+		if q.Role == rubric.Cap && q.CapAt > approve {
+			return fmt.Errorf("question %q: need cap_at <= approve_at, got cap_at=%v approve_at=%v", q.ID, q.CapAt, approve)
+		}
+	}
+	return nil
 }
 
 func validThresholds(approve, deny float64) error {
@@ -274,7 +300,7 @@ func (c *Config) validateRubric() error {
 	}
 	gates := 0
 	for _, q := range c.Rubric {
-		if q.Role == rubric.Gate {
+		if q.Role.Gating() {
 			gates++
 		}
 		if len(q.Instructions) > maxInstructionChars {

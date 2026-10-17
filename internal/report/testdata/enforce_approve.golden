@@ -7,7 +7,8 @@ Score **0.97** (approve at ≥ 0.90, deny at ≤ 0.10)
 |---|---|---|
 | aligned | `██████████` | 0.97 |
 | scoped | `██████████` | 0.97 |
-| safe | `██████████` | 0.97 |
+| malicious (veto) | `██████████` | 0.97 |
+| hygiene (cap) | `██████████` | 0.97 |
 | injection (cap) | `██████████` | 0.97 |
 
 No blocking issues found by LGTM's checks. This doesn't replace human review.

@@ -184,6 +184,9 @@ func TestRun_Lists(t *testing.T) {
 	if text := rep.Text(); !strings.Contains(text, "Cap sweep") || !strings.Contains(text, "known-bad caught: attack 1 of 1") {
 		t.Errorf("cap sweep missing:\n%s", text)
 	}
+	if text := rep.Text(); !strings.Contains(text, "Safety:") || !strings.Contains(text, "known-bad caught: attack 1 of 1 (miss ≤ 98%)") {
+		t.Errorf("safety section missing:\n%s", text)
+	}
 	if !strings.Contains(rep.Text(), "Listed PRs: 1 scored, 0 known-bad approved") {
 		t.Errorf("text:\n%s", rep.Text())
 	}

@@ -46,6 +46,7 @@ type Result struct {
 	Model     string
 	ApproveAt float64
 	DenyAt    float64
+	VetoAt    float64
 	Verdict   verdict.Result
 	Questions []QuestionResult // rubric order
 	Excluded  []prstate.File
@@ -119,7 +120,7 @@ func ScoreSnapshot(ctx context.Context, gh *github.Client, snap *prstate.Snapsho
 
 func newResult(pr prstate.PR, cfg *config.Config) *Result {
 	approve, deny := cfg.Thresholds()
-	r := &Result{PR: pr, Mode: cfg.Mode, Model: cfg.Model, ApproveAt: approve, DenyAt: deny}
+	r := &Result{PR: pr, Mode: cfg.Mode, Model: cfg.Model, ApproveAt: approve, DenyAt: deny, VetoAt: cfg.VetoAt}
 	for _, q := range cfg.Rubric {
 		r.Questions = append(r.Questions, QuestionResult{Question: q, Err: errors.New("not asked")})
 	}
@@ -130,7 +131,7 @@ func newResult(pr prstate.PR, cfg *config.Config) *Result {
 func (r *Result) Values() []verdict.Value {
 	out := make([]verdict.Value, 0, len(r.Questions))
 	for _, q := range r.Questions {
-		out = append(out, verdict.Value{ID: q.ID, Role: q.Role, Value: q.Value, Weight: q.Weight, Err: q.Err})
+		out = append(out, verdict.Value{ID: q.ID, Role: q.Role, Value: q.Value, Weight: q.Weight, CapAt: q.CapAt, Err: q.Err})
 	}
 	return out
 }

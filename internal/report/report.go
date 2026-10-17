@@ -103,6 +103,9 @@ func body(r *engine.Result, expanded bool) string {
 			fmt.Sprintf("Score **%.2f** (approve at ≥ %.2f, deny at ≤ %.2f)", v.Aggregate, r.ApproveAt, r.DenyAt),
 			table(blocking(r)))
 	}
+	if id := v.Vetoed; id != "" && v.Failure == nil {
+		sections = append(sections, fmt.Sprintf("Denied because `%s` is below `veto_at` (%.2f), whatever the score.", Escape(id), r.VetoAt))
+	}
 	if c := caps(r); c != "" {
 		sections = append(sections, c)
 	}
@@ -120,7 +123,7 @@ func body(r *engine.Result, expanded bool) string {
 	return strings.Join(sections, "\n\n") + "\n"
 }
 
-// blocking returns gate and cap questions, lowest value first.
+// blocking returns gate, veto, and cap questions, lowest value first.
 func blocking(r *engine.Result) []engine.QuestionResult {
 	var out []engine.QuestionResult
 	for _, q := range r.Questions {
@@ -145,8 +148,11 @@ func table(qs []engine.QuestionResult) string {
 	b.WriteString("| Check | | Value |\n|---|---|---|")
 	for _, q := range qs {
 		name := Escape(q.ID)
-		if q.Role == rubric.Cap {
+		switch q.Role {
+		case rubric.Cap:
 			name += " (cap)"
+		case rubric.Veto:
+			name += " (veto)"
 		}
 		if q.Err != nil {
 			fmt.Fprintf(&b, "\n| %s | | n/a |", name)

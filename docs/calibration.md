@@ -141,9 +141,9 @@ These 30 are the negatives the kubernetes set lacked: a reviewer judged the diff
 | Renovate, Dependabot | 36 | 0.78 / 0 | 0.91 / 0 |
 | Ordinary repo PRs (merged) | 179 / 850 | 0.19 / 13 | 0.41 / 0 |
 
-- With the default wording the groups overlap, so no cap threshold works. The reworded wording leaves ordinary PRs at 0.41 or more across four repos.
+- With the default wording the groups overlap, so no cap threshold works. The reworded wording leaves ordinary PRs at 0.41 or more across three repos.
 - The PRs scored lowest are mostly ones that talk to AI reviewers. `channel-io/BezierSwift#201` says only `@coderabbitai ignore`, which is an instruction to an automated reviewer, if a harmless one. Repos that build AI products also score low, because their diffs contain prompts.
-- A separate cap threshold of 0.3 catches every attempt, with a margin of 2 over the highest (0.14). It holds 7 of the 157 known-good PRs (4%) and no ordinary PR. A held PR goes to a human, which is cheap, while a missed attempt is not, so the cut-off should err high.
+- A separate cap threshold of 0.3 catches every attempt: more than twice the highest attempt score (0.14). It holds 7 of the 157 known-good PRs (4%) and no ordinary PR. A held PR goes to a human, which is cheap, while a missed attempt is not, so the cut-off should err high.
 
 ## Reproducing
 
@@ -168,7 +168,7 @@ group by all order by all;
 
 ## What to change
 
-1. **Give cap questions their own threshold.** A cap holds an approve when its question is below `approve_at`. After the rewording, ordinary PRs score 0.41 or more on `injection` across four repos, while the 20 known injection attempts score 0.14 or less. So a cap at 0.9 holds nearly everything, while a cap at 0.3 catches every attempt, holds no ordinary PR, and holds 4% of PRs that talk to AI reviewers (see [More data](#legitimate-prs-that-talk-to-ai)). A separate `cap_at`, fitted by replay against the known-bad and known-good lists, would decouple the two.
+1. **Give cap questions their own threshold.** A cap holds an approve when its question is below `approve_at`. After the rewording, ordinary PRs score 0.41 or more on `injection` across three repos, while the 20 known injection attempts score 0.14 or less. So a cap at 0.9 holds nearly everything, while a cap at 0.3 catches every attempt, holds no ordinary PR, and holds 4% of PRs that talk to AI reviewers (see [More data](#legitimate-prs-that-talk-to-ai)). A separate `cap_at`, fitted by replay against the known-bad and known-good lists, would decouple the two.
 2. **The min of four gates rarely reaches 0.9.** `scoped` and `aligned` sit around 0.7 to 0.85 on PRs humans merged. Calibration should be able to fit a lower `approve_at`, but on kubernetes the 16 negatives score as high as the positives on every gate. These maintainer negatives are mostly "not wanted" or "wrong approach", which a diff-level question can't see. On node and home-assistant, where a reviewer requested changes, the aggregate still does worse than chance (AUC 0.47), because `tested` points the wrong way (see [More data](#negatives-a-reviewer-flagged)). The aggregate needs rethinking: drop `tested` from the minimum, or weight the questions that carry a signal (`aligned`, `risk`, `scoped`).
 3. **Mark which questions each perturbation is meant to move.** The distractor hunk and the code-comment authority claim add unrelated content, so `scoped` and `aligned` *should* drop (9 or 10 out of 10). The report counts those drops as instability. On kubernetes with the default rubric, the distractor flipped 5 of 10 verdicts, all through those questions. Each edit should list the questions it is expected to move, and the report should keep those separate.
 4. **The content-free probe warning is noisy for "absence" questions.** `safe` and `injection` score high on an empty PR because there's nothing bad in it, yet they still separate the fixtures (safe 0.96 vs 0.04). The warning fits questions that should need evidence to pass, such as `tested` and `aligned`, better than these.

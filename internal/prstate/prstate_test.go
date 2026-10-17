@@ -235,7 +235,7 @@ func TestPlan_LargePRBatchesAndTrims(t *testing.T) {
 			t.Error("diff-context batch carries PR prose")
 		}
 	}
-	for _, id := range []string{"safe", "scoped", "injection"} {
+	for _, id := range []string{"malicious", "hygiene", "scoped", "injection"} {
 		if batched[id] < 2 {
 			t.Errorf("%s asked %d times; diff-local questions should be batched", id, batched[id])
 		}

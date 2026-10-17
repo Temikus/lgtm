@@ -53,12 +53,20 @@ func TestLoad_PRDExample(t *testing.T) {
 	}
 	gates := 0
 	for _, q := range c.Rubric {
-		if q.Role == rubric.Gate {
+		if q.Role.Gating() {
 			gates++
 		}
 	}
 	if gates != 5 {
 		t.Errorf("gates = %d, want 5 (3 default + described + migration_safe)", gates)
+	}
+}
+
+// A fitted approve_at below hygiene's own cap_at must still load: the cap
+// then holds anything below it, which is stricter, not broken.
+func TestLoad_QuestionCapAtAboveApprove(t *testing.T) {
+	if _, err := Load([]byte("approve_at = 0.7\ndeny_at = 0.1")); err != nil {
+		t.Errorf("approve_at below hygiene's cap_at: %v", err)
 	}
 }
 
@@ -73,8 +81,8 @@ func TestLoad_EmptyGivesDefaults(t *testing.T) {
 	if a, d := c.Thresholds(); a != 0.9 || d != 0.1 {
 		t.Errorf("thresholds = %v/%v", a, d)
 	}
-	if p := c.Policy(); p.CapAt != 0.3 {
-		t.Errorf("cap_at = %v, want 0.3", p.CapAt)
+	if p := c.Policy(); p.CapAt != 0.3 || p.VetoAt != DefaultVetoAt {
+		t.Errorf("cap_at = %v, veto_at = %v", p.CapAt, p.VetoAt)
 	}
 	if len(c.Exclude) == 0 || len(c.Rubric) != len(rubric.Defaults()) {
 		t.Errorf("exclude = %v, rubric = %d", c.Exclude, len(c.Rubric))
@@ -101,28 +109,31 @@ gate = true
 
 func TestLoad_Rejects(t *testing.T) {
 	tests := map[string]struct{ toml, want string }{
-		"base url in toml":   {`base_url = "https://evil.example"`, "LGTM_BASE_URL"},
-		"http base url":      {`base_url = "http://evil.example"`, "LGTM_BASE_URL"},
-		"unknown key":        {`aprove_at = 0.9`, "aprove_at"},
-		"unknown provider":   {`provider = "evil"`, "provider"},
-		"bad mode":           {`mode = "yolo"`, "mode"},
-		"deny above approve": {"approve_at = 0.5\ndeny_at = 0.6", "deny_at"},
-		"approve at one":     {"approve_at = 1.0", "approve_at"},
-		"deny at zero":       {"deny_at = 0.0", "deny_at"},
-		"bad aggregate":      {`aggregate = "max"`, "aggregate"},
-		"cap at zero":        {"cap_at = 0.0", "cap_at"},
-		"cap at one":         {"cap_at = 1.0", "cap_at"},
-		"cap above approve":  {"approve_at = 0.5\ndeny_at = 0.1\ncap_at = 0.6", "cap_at"},
+		"base url in toml":     {`base_url = "https://evil.example"`, "LGTM_BASE_URL"},
+		"http base url":        {`base_url = "http://evil.example"`, "LGTM_BASE_URL"},
+		"unknown key":          {`aprove_at = 0.9`, "aprove_at"},
+		"unknown provider":     {`provider = "evil"`, "provider"},
+		"bad mode":             {`mode = "yolo"`, "mode"},
+		"deny above approve":   {"approve_at = 0.5\ndeny_at = 0.6", "deny_at"},
+		"approve at one":       {"approve_at = 1.0", "approve_at"},
+		"deny at zero":         {"deny_at = 0.0", "deny_at"},
+		"bad aggregate":        {`aggregate = "max"`, "aggregate"},
+		"cap at zero":          {"cap_at = 0.0", "cap_at"},
+		"cap at one":           {"cap_at = 1.0", "cap_at"},
+		"cap above approve":    {"approve_at = 0.5\ndeny_at = 0.1\ncap_at = 0.6", "cap_at"},
+		"veto at zero":         {"veto_at = 0.0", "veto_at"},
+		"registry with scheme": {`lockfile_registries = ["https://npm.example.com"]`, "bare host"},
+		"veto at approve":      {"approve_at = 0.5\ndeny_at = 0.1\ncap_at = 0.3\nveto_at = 0.5", "veto_at"},
 		"no gates": {`
 [questions.aligned]
 gate = false
 [questions.scoped]
 gate = false
-[questions.safe]
+[questions.malicious]
 enabled = false
 [questions.tested]
 enabled = false`, "at least one gating"},
-		"long instructions": {"[questions.safe]\ninstructions = \"" + strings.Repeat("x", 2001) + "\"", "2000"},
+		"long instructions": {"[questions.malicious]\ninstructions = \"" + strings.Repeat("x", 2001) + "\"", "2000"},
 		"too many options":  {"[questions.big]\ntype = \"choice\"\ninstructions = \"x\"\noptions = [" + manyOptions(33) + "]", "32"},
 		"too many questions": {func() string {
 			var b strings.Builder

@@ -70,6 +70,7 @@ type Report struct {
 	ListedPoints []Point
 	Rates        Rates
 	CapSweeps    []CapSweep
+	VetoSweeps   []VetoSweep
 	CostUSD      float64
 	// Calibration is what --write stores, or nil with WhyNot saying why not.
 	Calibration *config.Calibration
@@ -133,6 +134,7 @@ func Run(ctx context.Context, gh *github.Client, o Options) (rep *Report, err er
 	}
 	rep.Reliability = Reliability(rep.Points, cfg.Rubric)
 	rep.CapSweeps = CapSweeps(append(slices.Clone(rep.Points), rep.ListedPoints...), cfg.Rubric, rep.CurrentPol.CapAt)
+	rep.VetoSweeps = VetoSweeps(append(slices.Clone(rep.Points), rep.ListedPoints...), cfg.Rubric, rep.CurrentPol.VetoAt)
 	// The perturbation baseline scores each PR twice, so it skips the cache.
 	if err := o.extras(ctx, gh, eo, budget, rep, labelled); err != nil {
 		return nil, err
@@ -321,7 +323,7 @@ func listedResults(ss []Sample, kinds []string, rs []*engine.Result) []Listed {
 		if r == nil {
 			continue
 		}
-		kb := Listed{Ref: fmt.Sprintf("%s/%s#%d", ss[i].PR.Owner, ss[i].PR.Repo, ss[i].PR.Number), Kind: kinds[i], Label: ss[i].Label, Verdict: string(r.Verdict.Verdict), Err: r.Verdict.Failure}
+		kb := Listed{Ref: listRef(ss[i].PR), Kind: kinds[i], Label: ss[i].Label, Verdict: string(r.Verdict.Verdict), Err: r.Verdict.Failure}
 		for _, c := range r.Verdict.Caps {
 			kb.Caps = append(kb.Caps, string(c))
 		}

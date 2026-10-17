@@ -165,6 +165,103 @@ These choices came from the same PRs they were measured on. A holdout of two rep
 - So `approve_at` must be fitted per repo, and the false-approve bound is what keeps it honest. At home-assistant's 0.94, the holdout repos would approve 5 of 16 rejected PRs (31%).
 - The cap threshold holds up: no merged holdout PR scores under 0.3 on `injection` (lowest 0.35), and every known injection attempt does.
 
+## Safety
+
+On 2026-10-17 the goal became safety first: get "is this malicious" right before tuning anything else.
+
+### Sample
+
+- **Real attacks: 38 counted, across 10 techniques.** They come from public incident write-ups ([known-bad-prs.txt](known-bad-prs.txt)). A script fetched every diff and confirmed that its added lines carry the technique's marker, such as `folderOpen` or `zend_eval_string`. A sample was also read in full.
+
+  | Technique | Count | Examples |
+  |---|---|---|
+  | `workflow-exfil` | 22 | Megalodon, GhostAction |
+  | `prt-exfil` | 7 | prt-scan, Rspack, stripe-samples, asyncapi |
+  | `obfuscated-code` | 2 | asyncapi's padded JS, exo |
+  | `token-exfil`, `runner-backdoor`, `ci-tamper`, `hidden-blob`, `agent-sabotage`, `maintainer-sabotage`, `backdoor-rce` | 1 each | Nx, Shai-Hulud 2.0, SAP cap-js, gpt-pilot, Amazon Q, colors.js, php-src |
+
+- **Reported, not counted:**
+  - 2 subtle sabotage (xz);
+  - 3 changes that open a hole without a payload;
+  - 4 blind spots;
+  - 20 injection attempts and 15 spam PRs.
+- **Legitimate: 1,094 PRs.**
+  - 376 from home-assistant's history. All count as legitimate, rejected or not.
+  - 157 known-good.
+  - 342 hard-good ([hard-good-prs.txt](hard-good-prs.txt)): merged, approved PRs that touch what an attack would. That means workflows with secrets, auth, TLS, install scripts, subprocesses, telemetry, base64 blobs, and editor, git-hook, or AI-agent config.
+- **No synthetic attacks.** We chose not to write attack payloads, so every figure rests on real ones.
+
+### The old `safe` mixed malice with mistakes
+
+At 0.3, `safe` caught 36 of 38 attacks but also scored 4 hard-good PRs below 0.3. Two of them commit credentials, one ships a curl-to-shell installer, and one adds OAuth config. A committed key is a mistake that needs a human, not malice to deny.
+
+So `safe` became two questions:
+- **`malicious`** is a veto: below `veto_at`, the PR is denied whatever the aggregate.
+- **`hygiene`** is a cap with its own `cap_at` of 0.8: committed secrets, injectable code, and disabled TLS or auth hold a PR for a human.
+
+### Results
+
+`veto_at` 0.4 is the highest sweep value with no legitimate PR below it. Scoring everything with the new questions cost $0.24.
+
+| | Below `veto_at` | Verdict |
+|---|---|---|
+| Counted attacks | 37 of 38 | 38 denied, none approved |
+| Legitimate PRs | 0 of 1,094 (lowest 0.43) | |
+
+- **Bounds.** 1 miss in 38 bounds the real miss rate at 14% (95%, Clopper-Pearson). 0 false denials in 1,094 bounds the false-deny rate at 0.3%.
+- **The miss.** colors.js's endless loop scored above 0.4 on `malicious`, but other gates still denied it.
+- **The margin is thin.** At 0.5 the veto would deny 2 legitimate PRs, which scored 0.43 and 0.45.
+- **`hygiene` at 0.8** holds 4 of 354 merged history PRs (1%) and 129 of 417 known-good ones. The known-good ones held are mostly the hard ones (auth, TLS, install scripts), where a human look is the point.
+- **Not a clean holdout.** The `malicious` wording was written after the first measurement. Its clause on weakened CI safeguards came from the cap-js miss. New attacks are the real test: about 10 more with no new miss would bring the bound under 10%.
+
+### Holdout
+
+The 22 attacks below were collected after the `malicious` wording was written, then scored once with nothing changed. Each diff was checked the same way as above.
+
+| Technique | Count | Source |
+|---|---|---|
+| `workflow-exfil` | 5 | GhostAction, still running: commit search finds about 1,250 matches, the newest from 2026-10-07 |
+| `ide-autorun` | 5 | VS Code tasks that run a remote script on folder open, including two force-pushed evil merges |
+| `obfuscated-code` | 4 | ForceMemo force-pushes |
+| `cryptominer` | 3 | miners in CI, one named like a deploy job |
+| `action-imposter` | 2 | reviewdog, trivy-action |
+| `agent-hook`, `install-hook`, `backdoor-rce` | 1 each | an npm worm's copy of keyv, php-src's second backdoor |
+
+- **21 of 22 fall below `veto_at`, and those 21 are denied.** None is approved.
+- **The miss is `ritualorg/zetamvp`.** It scored 0.89 on `malicious` and went to needs-human through low `aligned` and `scoped`. The model saw its whole `tasks.json`. The wording covers code run "at build, install, or run time", and opening a folder in an editor is none of those.
+- **Bounds.** On the holdout alone, 1 miss in 22 bounds the miss rate at 23% (95%). Pooled with the first 38, 2 misses in 60 bound it at 12%, still above the 10% target. The pooled figure isn't an independent holdout, because the wording was written after seeing the first 38.
+- **A rewording didn't help.** One version added commands that run on their own when someone opens the project: editor tasks, dev container commands, git hooks, and agent hooks that download, decode, or hide what they run.
+  - It moved `zetamvp` from 0.89 to 0.48, still above `veto_at`.
+  - It also lowered legitimate PRs by about 0.05. One telemetry PR fell to 0.38 and would have been denied.
+  - It was tried with 80 more hard-good PRs that change editor, dev container, git-hook, or agent config. 62 of them touch those paths.
+  - It was reverted. Trying it also spent this holdout on that technique.
+- **A deterministic check does the job instead.** Any change to editor tasks (`.vscode/tasks.json`, `.code-workspace`), dev container config, git hooks (`.husky/`, `.githooks/`), or AI-agent settings (`.claude/` and `.gemini/` settings, `.cursor/hooks.json`) now holds approve. A first version matched only added trigger lines; a code review showed that editing an existing task's command got past it. On the stored data it holds all 6 auto-run attacks and none of the 1,400 history PRs. It also holds 29 of the 342 hard-good PRs, most of them chosen because they change such config, and 2 of the 163 known-good PRs.
+
+### Holdout 2
+
+30 more attacks were collected after holdout 1 and scored once with nothing changed: 10 PolinRider config-file payloads, 11 Contagious Interview loaders, 5 from a secrets-exfil campaign dated 2026-09-27, 2 `setup.py` exec stagers, and 2 whitespace-padded VS Code tasks.
+
+- 28 of 30 fall below `veto_at` and are denied.
+- The other two are Contagious Interview error-handler loaders. They scored 0.44 and 0.47 on `malicious` and went to needs-human.
+- None is approved.
+
+| | Attacks | Not denied by the veto | Approved |
+|---|---|---|---|
+| First set (wording written after it) | 38 | 1 | 0 |
+| Holdout 1 | 22 | 1 | 0 |
+| Holdout 2 | 30 | 2 | 0 |
+| All | 90 | 4, so a 95% bound of 11% | 0, so a 95% bound of 4.0% |
+
+The number that matters most is the last one. Every attack that escaped the veto still went to needs-human, so none would have been approved. On the two holdouts alone, the bound on approving an attack is 6.9%.
+
+### Blind spots
+
+- **Subtle sabotage is approved.** xz's one-character Landlock break (`tukaani-project/xz@328c52da`) looks like an honest build fix.
+- **Binary payloads go to needs-human, not deny.** That covers xz's test files, which have no patch, so the view is partial.
+- **A dependency's tarball** isn't in the diff (event-stream). The PR goes to needs-human.
+- **Branch names and PR titles injected into workflows** (Ultralytics, 2024) leave no diff at all.
+- **Lockfiles are excluded from the model by default.** asyncapi's payload hid under 15,000 lockfile lines, but its JS files gave it away. A deterministic check now holds any PR whose lockfile resolves a package from outside the usual registries. On the stored data it held 2 of 233 PRs with lockfile changes, both git dependencies. No real attack in the set uses this technique, so the check is untested against one.
+
 ## Reproducing
 
 The [local dataset](../README.md#calibrating) keeps these runs, so a rerun with new wording asks the model only about the calls that changed:

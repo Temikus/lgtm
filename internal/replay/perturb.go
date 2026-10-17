@@ -254,5 +254,6 @@ func (f *FlipRate) add(a, b *engine.Result, pol verdict.Policy) {
 }
 
 func point(r *engine.Result) Point {
-	return Point{Agg: r.Verdict.Aggregate, Values: r.Values(), Partial: len(r.Partial) > 0, LockSource: len(r.LockSources) > 0, AutoRun: len(r.AutoRuns) > 0, Untrusted: r.Untrusted}
+	return Point{Agg: r.Verdict.Aggregate, Values: r.Values(), Partial: len(r.Partial) > 0, LockSource: len(r.LockSources) > 0, AutoRun: len(r.AutoRuns) > 0,
+		Sensitive: len(r.Sensitive) > 0, TooLarge: r.Verdict.Caps != nil && slices.Contains(r.Verdict.Caps, verdict.TooLarge), Untrusted: r.Untrusted}
 }

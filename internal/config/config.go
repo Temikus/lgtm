@@ -40,6 +40,17 @@ const (
 	Enforce Mode = "enforce"
 )
 
+// DefaultSensitive are paths whose change always needs a human: CI
+// workflows and actions, where most real attacks land, and code owners.
+var DefaultSensitive = []string{
+	".github/workflows/**", ".github/actions/**", "**/action.yml", "**/action.yaml",
+	"CODEOWNERS", ".github/CODEOWNERS", "docs/CODEOWNERS",
+}
+
+// DefaultMaxChangedLines holds approve above this many added and deleted
+// lines in files the model sees. About 5% of history PRs are larger.
+const DefaultMaxChangedLines = 1000
+
 // DefaultExclude keeps generated and vendored files out of patches. Matching
 // files are still listed in state.excluded and in the report.
 var DefaultExclude = []string{
@@ -89,8 +100,13 @@ type Config struct {
 	// CIRequired names checks that must not have failed, besides the base
 	// branch's ruleset checks. Classic branch protection isn't readable
 	// without admin access, so repos using it list their checks here.
-	CIRequired        []string
-	Exclude           []string
+	CIRequired []string
+	Exclude    []string
+	// Sensitive paths hold approve when changed; nil means the defaults
+	// and an empty list turns the check off.
+	Sensitive []string
+	// MaxChangedLines holds approve above it; 0 turns the check off.
+	MaxChangedLines   int
 	BorderlineMargin  float64
 	AllowUncalibrated bool
 	Calibration       *Calibration
@@ -111,6 +127,8 @@ type file struct {
 	LockfileRegistries []string                   `toml:"lockfile_registries"`
 	CIRequired         []string                   `toml:"ci_required"`
 	Exclude            []string                   `toml:"exclude"`
+	Sensitive          []string                   `toml:"sensitive_paths"`
+	MaxChangedLines    *int                       `toml:"max_changed_lines"`
 	BorderlineMargin   *float64                   `toml:"borderline_margin"`
 	AllowUncalibrated  *bool                      `toml:"allow_uncalibrated"`
 	Calibration        *Calibration               `toml:"calibration"`
@@ -153,9 +171,14 @@ func Load(data []byte) (*Config, error) {
 		LockfileRegistries: f.LockfileRegistries,
 		CIRequired:         f.CIRequired,
 		Exclude:            f.Exclude,
+		Sensitive:          f.Sensitive,
+		MaxChangedLines:    deref(f.MaxChangedLines, DefaultMaxChangedLines),
 		BorderlineMargin:   deref(f.BorderlineMargin, 0.05),
 		AllowUncalibrated:  deref(f.AllowUncalibrated, false),
 		Calibration:        f.Calibration,
+	}
+	if c.Sensitive == nil {
+		c.Sensitive = slices.Clone(DefaultSensitive)
 	}
 	if c.Exclude == nil {
 		c.Exclude = slices.Clone(DefaultExclude)
@@ -250,10 +273,14 @@ func (c *Config) validate() error {
 	if c.BorderlineMargin < 0 || c.BorderlineMargin >= 0.5 {
 		return fmt.Errorf("borderline_margin must be in [0, 0.5), got %v", c.BorderlineMargin)
 	}
-	for _, g := range c.Exclude {
-		if !doublestar.ValidatePattern(g) {
-			return fmt.Errorf("exclude: invalid glob %q", g)
-		}
+	if c.MaxChangedLines < 0 {
+		return fmt.Errorf("max_changed_lines must not be negative, got %d", c.MaxChangedLines)
+	}
+	if err := validGlobs("sensitive_paths", c.Sensitive); err != nil {
+		return err
+	}
+	if err := validGlobs("exclude", c.Exclude); err != nil {
+		return err
 	}
 	if err := c.validateCalibration(); err != nil {
 		return err
@@ -331,6 +358,15 @@ func deref[T any](p *T, def T) T {
 		return def
 	}
 	return *p
+}
+
+func validGlobs(key string, globs []string) error {
+	for _, g := range globs {
+		if !doublestar.ValidatePattern(g) {
+			return fmt.Errorf("%s: invalid glob %q", key, g)
+		}
+	}
+	return nil
 }
 
 // validHosts rejects lockfile_registries entries that aren't bare host

@@ -177,6 +177,8 @@ var capText = map[verdict.CapKind]string{
 	verdict.LockfileSource:  "a lockfile pulls a package from outside the usual registries (`lockfile_registries` adds hosts)",
 	verdict.AutoRunCommand:  "the diff changes files that run commands on their own on developers' machines (editor tasks, dev containers, git hooks, or AI-agent settings)",
 	verdict.CIFailing:       "a required check failed on this commit",
+	verdict.SensitivePath:   "the diff changes a sensitive path, such as a CI workflow (`sensitive_paths`)",
+	verdict.TooLarge:        "the diff is larger than `max_changed_lines`",
 	verdict.UntrustedAuthor: "the PR is from a fork by an author without write access",
 	verdict.ModelChanged:    "the model version changed since calibration; re-run `lgtm replay --write`",
 	verdict.Borderline:      "the score is borderline and an answer changed when the options were reordered",
@@ -216,6 +218,9 @@ func details(r *engine.Result) string {
 	}
 	for _, c := range r.CIFailed {
 		fmt.Fprintf(&b, "- Failed required check: %s\n", Escape(c))
+	}
+	for _, p := range r.Sensitive {
+		fmt.Fprintf(&b, "- Sensitive path: %s\n", Escape(p))
 	}
 	if r.CIErr != nil {
 		fmt.Fprintf(&b, "- Couldn't read CI status: %s\n", Escape(capLen(r.CIErr.Error(), maxErrorLen)))
@@ -383,6 +388,9 @@ func Text(r *engine.Result) string {
 	}
 	for _, c := range r.CIFailed {
 		fmt.Fprintf(&b, "failed check: %s\n", clean(c))
+	}
+	for _, p := range r.Sensitive {
+		fmt.Fprintf(&b, "sensitive: %s\n", clean(p))
 	}
 	if r.CIErr != nil {
 		fmt.Fprintf(&b, "CI status unread: %s\n", clean(capLen(r.CIErr.Error(), maxErrorLen)))

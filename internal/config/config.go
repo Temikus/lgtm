@@ -261,11 +261,6 @@ func (c *Config) validateCuts() error {
 	if !(0 < c.VetoAt && c.VetoAt < approve) {
 		return fmt.Errorf("need 0 < veto_at < approve_at < 1, got veto_at=%v approve_at=%v", c.VetoAt, approve)
 	}
-	for _, q := range c.Rubric {
-		if q.Role == rubric.Cap && q.CapAt > approve {
-			return fmt.Errorf("question %q: need cap_at <= approve_at, got cap_at=%v approve_at=%v", q.ID, q.CapAt, approve)
-		}
-	}
 	return nil
 }
 

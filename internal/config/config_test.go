@@ -62,6 +62,14 @@ func TestLoad_PRDExample(t *testing.T) {
 	}
 }
 
+// A fitted approve_at below hygiene's own cap_at must still load: the cap
+// then holds anything below it, which is stricter, not broken.
+func TestLoad_QuestionCapAtAboveApprove(t *testing.T) {
+	if _, err := Load([]byte("approve_at = 0.7\ndeny_at = 0.1")); err != nil {
+		t.Errorf("approve_at below hygiene's cap_at: %v", err)
+	}
+}
+
 func TestLoad_EmptyGivesDefaults(t *testing.T) {
 	c, err := Load(nil)
 	if err != nil {
@@ -114,7 +122,6 @@ func TestLoad_Rejects(t *testing.T) {
 		"cap at one":                    {"cap_at = 1.0", "cap_at"},
 		"cap above approve":             {"approve_at = 0.5\ndeny_at = 0.1\ncap_at = 0.6", "cap_at"},
 		"veto at zero":                  {"veto_at = 0.0", "veto_at"},
-		"question cap_at above approve": {"approve_at = 0.7\ndeny_at = 0.1\n[questions.hygiene]\ncap_at = 0.75", "cap_at"},
 		"veto at approve":               {"approve_at = 0.5\ndeny_at = 0.1\ncap_at = 0.3\nveto_at = 0.5", "veto_at"},
 		"no gates": {`
 [questions.aligned]

@@ -68,6 +68,8 @@ The biggest risk the PRD may have missed comes from Jev's model family. A typed 
 
 **Sources:** <https://arxiv.org/pdf/2601.01129v1>
 
+### 11. (high) [Calibration / safety] Real malicious diffs come from incident write-ups, not datasets (2026-10-17). Public datasets of malicious code (DataDog's malicious-software-packages-dataset, Backstabber's Knife Collection, MalOSS, OpenSSF malicious-packages) hold package tarballs or reports, not git diffs. The one PR-level set found, PRWeaver (arXiv 2608.02693), is synthetic and unreleased. Write-ups from StepSecurity, Wiz, GitGuardian, SafeDep, and Snyk name PRs and commits whose diffs are still on GitHub. Many 2026 attack PRs were deleted within months, so store each diff when it is found (`lgtm data pull --list`). Ladisa et al.'s taxonomy (IEEE S&P 2023, arXiv 2204.04008) is the checklist for which techniques the sample covers. PRD change: lists take commits as well as PRs, and the safety bound rests on real attacks only.
+
 ## Caveats
 
 Coverage gaps: no claims survived verification on several topics the question asked about. These are prompt injection via PR content against AI reviewers, long-context and diff-truncation effects, Goodhart effects or developers gaming scores, PR or code-change signals that predict review outcomes, defects or reverts (size, tests, tangled changes, description quality), Google, Meta or Microsoft deployment studies, conformal prediction or selective prediction for thresholds, and methods for aggregating multiple rubric judgments. The PRD's current choices in those areas (MIN aggregation, a fork-PR cap at needs-human, partial view never approves) are neither confirmed nor challenged by this evidence.
@@ -124,3 +126,6 @@ Time sensitivity: most sources are 2024-2026 preprints, and model behaviour shif
 - <https://arxiv.org/pdf/2512.24587> (Selective prediction and threshold calibration)
 - <https://arxiv.org/pdf/2607.27143> (Selective prediction and threshold calibration)
 - <https://arxiv.org/pdf/2110.01052v4> (Selective prediction and threshold calibration)
+- <https://arxiv.org/abs/2204.04008> (Ladisa et al., supply-chain attack taxonomy)
+- <https://github.com/DataDog/malicious-software-packages-dataset> (malicious package samples)
+- <https://www.stepsecurity.io/incidents> (incident write-ups with PR and commit refs)

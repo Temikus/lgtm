@@ -71,6 +71,8 @@ func TestDecide(t *testing.T) {
 		{name: "failure beats veto", in: Input{Values: []Value{veto("safe", 0.01)}, Failure: errors.New("provider down")}, want: NeedsHuman},
 		{name: "own cap_at holds above the global one", in: Input{Values: []Value{gate("a", 0.97), {ID: "hygiene", Role: rubric.Cap, Value: 0.7, CapAt: 0.8}}}, want: NeedsHuman, wantCaps: []CapKind{CapQuestion}},
 		{name: "own cap_at passes above it", in: Input{Values: []Value{gate("a", 0.97), {ID: "hygiene", Role: rubric.Cap, Value: 0.85, CapAt: 0.8}}, Consistency: consistent}, want: Approve},
+		{name: "veto denies when another question failed", in: Input{Values: []Value{veto("safe", 0.05), {ID: "i", Role: rubric.Cap, Err: errors.New("no answer")}}}, want: Deny},
+		{name: "a failed veto answer is no veto", in: Input{Values: []Value{gate("a", 0.99), {ID: "safe", Role: rubric.Veto, Err: errors.New("no answer")}, {ID: "i", Role: rubric.Cap, Err: errors.New("no answer")}}}, want: NeedsHuman},
 		{name: "missing veto is failure", in: Input{Values: []Value{gate("a", 0.99), {ID: "safe", Role: rubric.Veto, Err: errors.New("no answer")}}}, want: NeedsHuman},
 	}
 	for _, tt := range tests {

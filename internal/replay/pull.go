@@ -105,8 +105,8 @@ func ParseList(r io.Reader) ([]ListEntry, error) {
 			continue
 		}
 		num, err := strconv.Atoi(m[4])
-		if err != nil {
-			return nil, fmt.Errorf("line %d: %w", n, err)
+		if err != nil || num <= 0 {
+			return nil, fmt.Errorf("line %d: %q: PR number must be positive", n, line)
 		}
 		out = append(out, ListEntry{Kind: m[1], Owner: m[2], Repo: m[3], Number: num, SHA: m[5]})
 	}
@@ -129,6 +129,12 @@ func PullList(ctx context.Context, gh *github.Client, d Data, entries []ListEntr
 		repo, num := e.Owner+"/"+e.Repo, e.Number
 		if num == 0 {
 			num = commitNumber(e.SHA)
+			// Two listed commits whose SHAs share a 7-hex prefix would share
+			// a row; refuse the second rather than score the wrong one.
+			if l, ok := d.Store.Label(repo, num, dataset.SourceList); ok && l.HeadSHA != e.SHA {
+				st.Failed++
+				continue
+			}
 		}
 		if l, ok := d.Store.Label(repo, num, dataset.SourceList); ok && l.Kind == e.Kind && l.Label == string(label) && (e.SHA == "" || l.HeadSHA == e.SHA) {
 			if _, ok := d.Store.Raw(repo, num, l.HeadSHA); ok {

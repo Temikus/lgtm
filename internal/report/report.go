@@ -168,11 +168,14 @@ func bar(v float64) string {
 	return strings.Repeat("█", n) + strings.Repeat("░", 10-n)
 }
 
+// maxLockSourcesShown bounds the lockfile sources a comment lists.
+const maxLockSourcesShown = 10
+
 var capText = map[verdict.CapKind]string{
 	verdict.CapQuestion:     "a cap question is below `cap_at`",
 	verdict.PartialView:     "LGTM couldn't see the whole diff",
 	verdict.LockfileSource:  "a lockfile pulls a package from outside the usual registries (`lockfile_registries` adds hosts)",
-	verdict.AutoRunCommand:  "the diff sets a command to run on its own on developers' machines (an editor task on folder open or an AI-agent hook)",
+	verdict.AutoRunCommand:  "the diff changes files that run commands on their own on developers' machines (editor tasks, dev containers, git hooks, or AI-agent settings)",
 	verdict.UntrustedAuthor: "the PR is from a fork by an author without write access",
 	verdict.ModelChanged:    "the model version changed since calibration; re-run `lgtm replay --write`",
 	verdict.Borderline:      "the score is borderline and an answer changed when the options were reordered",
@@ -182,7 +185,12 @@ func caps(r *engine.Result) string {
 	if len(r.Verdict.Caps) == 0 {
 		return ""
 	}
-	lines := []string{"Held at needs-human because:"}
+	head := "Held at needs-human because:"
+	if r.Verdict.Verdict == verdict.Deny {
+		// Caps only ever hold approve; on a deny they're context.
+		head = "Would also hold approve because:"
+	}
+	lines := []string{head}
 	for _, c := range r.Verdict.Caps {
 		lines = append(lines, "- "+capText[c])
 	}
@@ -208,8 +216,16 @@ func details(r *engine.Result) string {
 	for _, a := range r.AutoRuns {
 		fmt.Fprintf(&b, "- Auto-run: %s in %s\n", Escape(a.What), Escape(a.Path))
 	}
-	for _, s := range r.LockSources {
-		fmt.Fprintf(&b, "- Lockfile source: %s resolves from %s\n", Escape(s.Path), Escape(s.Host))
+	for i, s := range r.LockSources {
+		if i == maxLockSourcesShown {
+			fmt.Fprintf(&b, "- … and %d more lockfile sources\n", len(r.LockSources)-i)
+			break
+		}
+		host := s.Host
+		if host == "" {
+			host = "a non-URL source"
+		}
+		fmt.Fprintf(&b, "- Lockfile source: %s resolves from %s\n", Escape(s.Path), Escape(host))
 	}
 	if r.TrustErr != nil {
 		fmt.Fprintf(&b, "- Author permission check failed: %s\n", Escape(capLen(r.TrustErr.Error(), maxErrorLen)))
@@ -336,8 +352,12 @@ func Text(r *engine.Result) string {
 	} else {
 		fmt.Fprintf(&b, "score:   %.2f (approve >= %.2f, deny <= %.2f)\n", r.Verdict.Aggregate, r.ApproveAt, r.DenyAt)
 	}
+	label := "capped:  "
+	if r.Verdict.Verdict == verdict.Deny {
+		label = "also:    "
+	}
 	for _, c := range r.Verdict.Caps {
-		fmt.Fprintf(&b, "capped:  %s\n", capText[c])
+		fmt.Fprintf(&b, "%s%s\n", label, capText[c])
 	}
 	b.WriteString("\n")
 	for _, q := range r.Questions {

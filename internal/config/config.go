@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"slices"
+	"strings"
 
 	"github.com/bmatcuk/doublestar/v4"
 	"github.com/google/go-github/v92/github"
@@ -254,6 +255,9 @@ func (c *Config) validate() error {
 	if err := c.validateCuts(); err != nil {
 		return err
 	}
+	if err := validHosts(c.LockfileRegistries); err != nil {
+		return err
+	}
 	return c.validateRubric()
 }
 
@@ -321,4 +325,15 @@ func deref[T any](p *T, def T) T {
 		return def
 	}
 	return *p
+}
+
+// validHosts rejects lockfile_registries entries that aren't bare host
+// names, which would otherwise silently never match.
+func validHosts(hosts []string) error {
+	for _, h := range hosts {
+		if h == "" || strings.ContainsAny(h, "/:@ ") {
+			return fmt.Errorf("lockfile_registries: %q must be a bare host name, such as npm.example.com", h)
+		}
+	}
+	return nil
 }

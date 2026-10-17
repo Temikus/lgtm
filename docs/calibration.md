@@ -237,6 +237,23 @@ The 22 attacks below were collected after the `malicious` wording was written, t
   - It was reverted. Trying it also spent this holdout on that technique.
 - **A deterministic check does the job instead.** Any change to editor tasks (`.vscode/tasks.json`, `.code-workspace`), dev container config, git hooks (`.husky/`, `.githooks/`), or AI-agent settings (`.claude/` and `.gemini/` settings, `.cursor/hooks.json`) now holds approve. A first version matched only added trigger lines; a code review showed that editing an existing task's command got past it. On the stored data it holds all 6 auto-run attacks and none of the 1,400 history PRs. It also holds 29 of the 342 hard-good PRs, most of them chosen because they change such config, and 2 of the 163 known-good PRs.
 
+### Holdout 2
+
+30 more attacks were collected after holdout 1 and scored once with nothing changed: 10 PolinRider config-file payloads, 11 Contagious Interview loaders, 5 from a secrets-exfil campaign dated 2026-09-27, 2 `setup.py` exec stagers, and 2 whitespace-padded VS Code tasks.
+
+- 28 of 30 fall below `veto_at` and are denied.
+- The other two are Contagious Interview error-handler loaders. They scored 0.44 and 0.47 on `malicious` and went to needs-human.
+- None is approved.
+
+| | Attacks | Not denied by the veto | Approved |
+|---|---|---|---|
+| First set (wording written after it) | 38 | 1 | 0 |
+| Holdout 1 | 22 | 1 | 0 |
+| Holdout 2 | 30 | 2 | 0 |
+| All | 90 | 4, so a 95% bound of 11% | 0, so a 95% bound of 4.0% |
+
+The number that matters most is the last one. Every attack that escaped the veto still went to needs-human, so none would have been approved. On the two holdouts alone, the bound on approving an attack is 6.9%.
+
 ### Blind spots
 
 - **Subtle sabotage is approved.** xz's one-character Landlock break (`tukaani-project/xz@328c52da`) looks like an honest build fix.

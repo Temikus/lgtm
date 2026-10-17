@@ -121,6 +121,51 @@ action-imposter aquasecurity/trivy-action@f77738448eec70113cf711656914b61905b3bd
 #   php-src (2021): the second backdoor, forged as Nikita Popov.
 backdoor-rce php/php-src@2b0f239b211c7544ebc7a4cd2c977a5b7a11ed8a
 #
+# Holdout 2: collected after holdout 1, and scored once with nothing
+# changed (docs/calibration.md#safety). Checked the same way on 2026-10-17.
+#   PolinRider (github.com/OpenSourceMalware/PolinRider): obfuscated
+#   payloads appended to tailwind, postcss, or eslint config, often inside
+#   an unrelated README or UI commit.
+polinrider-config-append PradeepKundekar0101/ZapLaunch@64e598bbea893bdab950dba7e4664659faccb7e6
+polinrider-config-append thanhmati/einvoice-backend@a12448e30382a280669f5d72b5f57302ad16e018
+polinrider-config-append shahmeersensei/quiz-app@e232a7fe7db8869356a8f9abde00f2c9913c4d2f
+polinrider-config-append 16navigabraham/stakely-miniapp@277ff22efae2874caf38a95f003e91e4c784d8a5
+polinrider-config-append agentsifyai/Agentsify.ai-Website-Dev@241c4b4208021a722fd492599965b6caa127cf29
+polinrider-config-append ahmadraza382/FinanceAi@839389741466f2d55ff2e5800082c464b058a481
+polinrider-config-append heamlk/Next.js-automation@fdc41f63532ad412dee6288e30fe837d3441e602
+polinrider-config-append Rytnix786/MindStack@c9e14d12b8d63430091cadbe968b6f3b143d64ba
+polinrider-config-append owaisrafiq05/Customer-Support-Frontend@4980b021f3df72ae8851b82cb4d1b927bdd598a6
+polinrider-config-append abinig29/software-agency@e900cb3f0fb1da935a8e4f9ce30fd3bc10d289a0
+#   Contagious Interview fake job assignments (janhesters/scam-be-careful,
+#   xndbogdan/malicious-repositories): a loader that fetches remote code and
+#   runs it through eval or the Function constructor.
+contagious-loader artemus-jarrett/blockchain-voting-system@9de7a76d794c04e15641a4c96ed9d606bb82123d
+contagious-loader itssaifurrehman/coin-dex@b8cf4d8eb3c952cf9de1433ee2e77e657319d5e8
+contagious-loader codedbyiron/ELO@63c70d70e157cdfc0ed219e622214534c90d8f24
+contagious-loader devcode8/stock-home-assignment@38736cd197a11e9bb06382dac1b11cf4dd00c545
+contagious-loader 0xbrentfi/StockX_PoC_1.03@fc216e8bdadaa7d87f299b03c4d1762a0a2ad44f
+contagious-loader stockx-fi/stockx_v1@3dbd0262e3fda564bc070f3039c41f5cf39de53b
+contagious-loader Sweetgum3897/tech_flan@f06da960bbddd0dbf25beae783676dc862ca89dc
+contagious-loader andrew2719/test7@1c9372f3b75c2eed84c68d12052cabfa2715f4cf
+contagious-loader antonver/defiguard-dev@2304c250fea7fe245a8876c8e5c7a1d8a8020539
+contagious-loader MElkawa/stokkyam@6c2091476e0a089c0e6d041e7c7ec05abb36d105
+contagious-loader naman20sharma/Full-Stack-Performance-Optimization@d62d3f7fa8095973d681f548b6247943cee98040
+#   A campaign dated 2026-09-27, "ci: extend runner maintenance check": a
+#   workflow that dumps every secret and credential file and posts them out.
+#   Found by code search; no write-up yet.
+workflow-exfil EVEModX/EVEModX@1b65a25c2ff75ca4305f160c081e5f3414cb344b
+workflow-exfil LUGatGT/linux-freestyle@6b50d22471a200e10a043084182d9d9152609647
+workflow-exfil tharu143/erpnext_sdk_flutter@2c4c11aeea42d071a4a63d855fdd085cf8d2d906
+workflow-exfil fatherboards/Ftc_2016-2017@cff9045973242ca216a970a372f110a0a423f6d1
+workflow-exfil PhilipFelizarta/Maxent-Nash-Implementation@5d3e9c4b98bc243a8ecee15de4c94bf2156fda71
+#   setup.py that executes an encoded blob.
+python-setup-exec H3LLO-H4CK3R-2/EMAIL-SPAMMER@55b53ad991e09e5efa456bccb12134018cc005ab
+python-setup-exec dd0s666/DedeDropPi@94d4cbc23ce21f26061fa0d7abc47e81adce5085
+#   VS Code folder-open tasks padded with whitespace so the command scrolls
+#   off screen.
+ide-autorun antonver/defiguard-dev@40a296368216d7c548d206c76592bbc1b07ecb8a
+ide-autorun Sabbirnde/Nava@668335785f443e8e57a5e579433f8978f22e9b59
+#
 # Reported, not counted: the payload is in the diff but can't be told from
 # an honest change without outside context.
 #   xz (2024): a one-character break that silently disables Landlock.

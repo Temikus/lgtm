@@ -68,14 +68,18 @@ type Result struct {
 	AutoRuns    []prstate.AutoRun
 	// CIFailed are required checks that failed on the head; CIErr says why
 	// they couldn't be read, which doesn't hold the PR.
-	CIFailed  []string
-	CIErr     error
-	Untrusted bool
-	TrustErr  error
-	Served    []string // distinct model versions the replies named
-	Usage     jev.Usage
-	CostUSD   float64
-	Calls     int
+	CIFailed []string
+	CIErr    error
+	// Sensitive are changed paths that config marks sensitive.
+	Sensitive []string
+	// ChangedLines counts added and deleted lines in files the model sees.
+	ChangedLines int
+	Untrusted    bool
+	TrustErr     error
+	Served       []string // distinct model versions the replies named
+	Usage        jev.Usage
+	CostUSD      float64
+	Calls        int
 }
 
 // Score never returns an error: every failure becomes a needs-human result
@@ -118,6 +122,12 @@ func ScoreSnapshot(ctx context.Context, gh *github.Client, snap *prstate.Snapsho
 	in.AutoRun = len(r.AutoRuns) > 0
 	r.CIFailed, r.CIErr = failedChecks(ctx, gh, snap.PR, opts)
 	in.CIFailed = len(r.CIFailed) > 0
+	r.Sensitive = prstate.Matching(cfg.Sensitive, snap.Files, snap.Excluded)
+	in.Sensitive = len(r.Sensitive) > 0
+	for _, f := range snap.Files {
+		r.ChangedLines += f.Additions + f.Deletions
+	}
+	in.TooLarge = cfg.MaxChangedLines > 0 && r.ChangedLines > cfg.MaxChangedLines
 
 	lim := opts.Limits
 	if lim == (prstate.Limits{}) {

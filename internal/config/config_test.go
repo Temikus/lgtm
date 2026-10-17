@@ -81,6 +81,9 @@ func TestLoad_EmptyGivesDefaults(t *testing.T) {
 	if a, d := c.Thresholds(); a != 0.9 || d != 0.1 {
 		t.Errorf("thresholds = %v/%v", a, d)
 	}
+	if len(c.Sensitive) == 0 || c.MaxChangedLines != DefaultMaxChangedLines {
+		t.Errorf("sensitive = %v, max lines = %d", c.Sensitive, c.MaxChangedLines)
+	}
 	if p := c.Policy(); p.CapAt != 0.3 || p.VetoAt != DefaultVetoAt {
 		t.Errorf("cap_at = %v, veto_at = %v", p.CapAt, p.VetoAt)
 	}
@@ -122,6 +125,8 @@ func TestLoad_Rejects(t *testing.T) {
 		"cap at one":         {"cap_at = 1.0", "cap_at"},
 		"cap above approve":  {"approve_at = 0.5\ndeny_at = 0.1\ncap_at = 0.6", "cap_at"},
 		"veto at zero":       {"veto_at = 0.0", "veto_at"},
+		"negative max lines": {"max_changed_lines = -1", "max_changed_lines"},
+		"bad sensitive glob": {`sensitive_paths = ["a/[b"]`, "sensitive_paths"},
 		"veto at approve":    {"approve_at = 0.5\ndeny_at = 0.1\ncap_at = 0.3\nveto_at = 0.5", "veto_at"},
 		"no gates": {`
 [questions.aligned]

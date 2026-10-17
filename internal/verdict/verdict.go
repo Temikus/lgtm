@@ -38,6 +38,8 @@ const (
 	LockfileSource  CapKind = "lockfile-source"
 	AutoRunCommand  CapKind = "auto-run"
 	CIFailing       CapKind = "ci-failing"
+	SensitivePath   CapKind = "sensitive-path"
+	TooLarge        CapKind = "too-large"
 	UntrustedAuthor CapKind = "untrusted-author"
 	ModelChanged    CapKind = "model-changed"
 	Borderline      CapKind = "borderline-inconsistent"
@@ -76,7 +78,11 @@ type Input struct {
 	// developer's machine.
 	AutoRun bool
 	// CIFailed means a required check failed on the head commit.
-	CIFailed  bool
+	CIFailed bool
+	// Sensitive means the diff changes a path config marks sensitive.
+	Sensitive bool
+	// TooLarge means the visible diff is over max_changed_lines.
+	TooLarge  bool
 	Untrusted bool
 	// ModelChanged means a reply named a dated model version other than
 	// the one the thresholds were calibrated on.
@@ -98,7 +104,7 @@ type Result struct {
 }
 
 // Decide applies the aggregate and thresholds, then a veto, then caps in
-// order: cap question, partial view, lockfile source, auto-run, failed CI, untrusted author, model change,
+// order: cap question, partial view, lockfile source, auto-run, failed CI, sensitive path, too large, untrusted author, model change,
 // borderline consistency. A veto question below VetoAt denies outright. A
 // cap turns approve into needs-human and leaves deny alone.
 func Decide(p Policy, in Input) Result {
@@ -141,6 +147,12 @@ func caps(p Policy, in Input) []CapKind {
 	}
 	if in.CIFailed {
 		out = append(out, CIFailing)
+	}
+	if in.Sensitive {
+		out = append(out, SensitivePath)
+	}
+	if in.TooLarge {
+		out = append(out, TooLarge)
 	}
 	if in.Untrusted {
 		out = append(out, UntrustedAuthor)

@@ -290,3 +290,12 @@ func TestTrimPatch(t *testing.T) {
 		t.Errorf("trimmed escaped length %d > 30", escapedLen(got))
 	}
 }
+
+func TestMatching(t *testing.T) {
+	files := []File{{Path: "src/a.go"}, {Path: "ci/build.yml", PreviousPath: ".github/workflows/build.yml"}}
+	excluded := []File{{Path: ".github/workflows/deploy.yml"}}
+	got := Matching([]string{".github/workflows/**"}, files, excluded)
+	if len(got) != 2 || got[0] != "ci/build.yml" || got[1] != ".github/workflows/deploy.yml" {
+		t.Errorf("Matching = %v; a rename out of a sensitive path counts too", got)
+	}
+}

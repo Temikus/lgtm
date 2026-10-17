@@ -274,6 +274,33 @@ AUC is the chance that a kept PR scores higher than a reverted one. 0.5 is chanc
 - **A failed required check is a strong signal.** At their merge head, 10% of reverted PRs (6 of 58) had a failed required check, against 1.7% of kept ones (2 of 116). That's in the 5 repos whose required checks are readable through rulesets. Counting any failed check gives 23% against 16%, too noisy to hold on, because optional and flaky checks fail often. So LGTM holds only on required checks.
 - **The research agrees.** Size, spread, and CI results are the best-supported breakage signals, and LLMs judging a diff alone have low precision (5 to 26% across benchmarks). Precision matters less for a cap than for a deny: a false hold costs a human look.
 
+## Scope
+
+The third safety question is "is this changing too much, so it needs a closer look".
+
+### Model questions barely notice "needed changes"
+
+There were 206 merged PRs from 19 repos where a maintainer commented on lines that the author then changed. The commit the comment was on (before) was scored against the merged head (after).
+
+| Question | Before lower | Before higher | Mean change | Sign test |
+|---|---|---|---|---|
+| aggregate | 53 | 31 | +0.04 | p = 0.02 |
+| `aligned` | 47 | 20 | +0.03 | p = 0.001 |
+| `reviewability` | 31 | 65 | -0.01 | p = 0.001 |
+| `risk` | 23 | 48 | -0.01 | p = 0.004 |
+| `breaks`, `hygiene`, `malicious`, `scoped` | about even | | about 0 | p > 0.18 |
+
+- Review fixes raise `aligned` and the aggregate a little: 15 before versions would be approved, against 18 after.
+- `reviewability` and `risk` get worse after review, because PRs grow while being reviewed.
+- Ordinary review fixes aren't about safety, so `breaks`, `hygiene`, and `malicious` don't move. That is the right answer for them.
+- So a model question can't tell "needed changes" apart well, and LGTM routes on what it can count instead.
+
+### Deterministic routing
+
+- **Sensitive paths:** CI workflows, actions, and CODEOWNERS by default. 34 of the 104 known-bad PRs change `.github/workflows`, against 4% of history PRs.
+- **Size:** more than 1,000 changed lines in files the model sees. That's about 5% of history PRs. Known-bad PRs are small (median 24 lines), so this is about review effort, not attacks.
+- Together they cut home-assistant's approve recall from 49% to 46%.
+
 ## Reproducing
 
 The [local dataset](../README.md#calibrating) keeps these runs, so a rerun with new wording asks the model only about the calls that changed:

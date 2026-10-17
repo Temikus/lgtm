@@ -30,6 +30,14 @@ deny_at = 0.1
 # GitHub; with classic branch protection, name them here:
 # ci_required = ["test", "lint"]
 
+# Changes to these paths always need a human. Setting this replaces the
+# defaults; [] turns the check off.
+# sensitive_paths = [".github/workflows/**", ".github/actions/**", "**/action.yml", "**/action.yaml", "CODEOWNERS", ".github/CODEOWNERS", "docs/CODEOWNERS"]
+
+# A diff larger than this (added plus deleted lines, excluded files left
+# out) needs a human. 0 turns the check off.
+# max_changed_lines = 1000
+
 # Fork PRs from authors without write access never get approve.
 trust_forks = false
 

@@ -42,6 +42,8 @@ type Point struct {
 	Partial    bool
 	LockSource bool
 	AutoRun    bool
+	Sensitive  bool
+	TooLarge   bool
 	Untrusted  bool
 	// Listed marks a PR from a known-bad or known-good list. Known-good ones
 	// count towards false denials only; known-bad ones towards neither rate.
@@ -54,7 +56,7 @@ func (p Point) fitted() bool { return p.Label != Unlabelled && !p.Low }
 // replay treats it as passed.
 func (p Point) Verdict(pol verdict.Policy) verdict.Verdict {
 	return verdict.Decide(pol, verdict.Input{
-		Values: p.Values, Partial: p.Partial, LockSource: p.LockSource, AutoRun: p.AutoRun, Untrusted: p.Untrusted,
+		Values: p.Values, Partial: p.Partial, LockSource: p.LockSource, AutoRun: p.AutoRun, Sensitive: p.Sensitive, TooLarge: p.TooLarge, Untrusted: p.Untrusted,
 		Consistency: func() (bool, error) { return true, nil },
 	}).Verdict
 }

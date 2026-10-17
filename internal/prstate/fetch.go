@@ -92,6 +92,9 @@ type Snapshot struct {
 	// LockSources are lockfile package sources outside DefaultRegistries,
 	// read from patches before exclude globs drop them.
 	LockSources []LockSource
+	// AutoRuns are commands the diff sets to run on their own on a
+	// developer's machine.
+	AutoRuns []AutoRun
 }
 
 // Fetch reads the diff for pr and applies exclude globs.
@@ -139,7 +142,7 @@ func FetchRaw(ctx context.Context, gh *github.Client, pr PR) (*Raw, error) {
 // Snapshot applies exclude globs. It returns ErrNoFiles, with the snapshot,
 // when nothing is left to score.
 func (r *Raw) Snapshot(exclude []string) (*Snapshot, error) {
-	s := &Snapshot{PR: r.PR, Partial: slices.Clone(r.Partial), LockSources: lockSources(r.Files)}
+	s := &Snapshot{PR: r.PR, Partial: slices.Clone(r.Partial), LockSources: lockSources(r.Files), AutoRuns: autoRuns(r.Files)}
 	for _, file := range r.Files {
 		if matchAny(exclude, file.Path) {
 			file.Patch = ""

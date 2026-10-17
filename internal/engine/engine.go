@@ -56,6 +56,7 @@ type Result struct {
 	// LockSources are lockfile package sources outside the allowed
 	// registries; any of them holds approve.
 	LockSources []prstate.LockSource
+	AutoRuns    []prstate.AutoRun
 	Untrusted   bool
 	TrustErr    error
 	Served      []string // distinct model versions the replies named
@@ -100,6 +101,8 @@ func ScoreSnapshot(ctx context.Context, gh *github.Client, snap *prstate.Snapsho
 		})
 	})
 	in.LockSource = len(r.LockSources) > 0
+	r.AutoRuns = slices.Clone(snap.AutoRuns)
+	in.AutoRun = len(r.AutoRuns) > 0
 
 	lim := opts.Limits
 	if lim == (prstate.Limits{}) {

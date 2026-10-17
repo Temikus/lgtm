@@ -36,6 +36,7 @@ const (
 	CapQuestion     CapKind = "cap-question"
 	PartialView     CapKind = "partial-view"
 	LockfileSource  CapKind = "lockfile-source"
+	AutoRunCommand  CapKind = "auto-run"
 	UntrustedAuthor CapKind = "untrusted-author"
 	ModelChanged    CapKind = "model-changed"
 	Borderline      CapKind = "borderline-inconsistent"
@@ -70,7 +71,10 @@ type Input struct {
 	// LockSource means a lockfile change pulls a package from outside the
 	// allowed registries.
 	LockSource bool
-	Untrusted  bool
+	// AutoRun means the diff sets a command to run on its own on a
+	// developer's machine.
+	AutoRun   bool
+	Untrusted bool
 	// ModelChanged means a reply named a dated model version other than
 	// the one the thresholds were calibrated on.
 	ModelChanged bool
@@ -91,7 +95,7 @@ type Result struct {
 }
 
 // Decide applies the aggregate and thresholds, then a veto, then caps in
-// order: cap question, partial view, lockfile source, untrusted author, model change,
+// order: cap question, partial view, lockfile source, auto-run, untrusted author, model change,
 // borderline consistency. A veto question below VetoAt denies outright. A
 // cap turns approve into needs-human and leaves deny alone.
 func Decide(p Policy, in Input) Result {
@@ -128,6 +132,9 @@ func caps(p Policy, in Input) []CapKind {
 	}
 	if in.LockSource {
 		out = append(out, LockfileSource)
+	}
+	if in.AutoRun {
+		out = append(out, AutoRunCommand)
 	}
 	if in.Untrusted {
 		out = append(out, UntrustedAuthor)

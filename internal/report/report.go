@@ -172,6 +172,7 @@ var capText = map[verdict.CapKind]string{
 	verdict.CapQuestion:     "a cap question is below `cap_at`",
 	verdict.PartialView:     "LGTM couldn't see the whole diff",
 	verdict.LockfileSource:  "a lockfile pulls a package from outside the usual registries (`lockfile_registries` adds hosts)",
+	verdict.AutoRunCommand:  "the diff sets a command to run on its own on developers' machines (an editor task on folder open or an AI-agent hook)",
 	verdict.UntrustedAuthor: "the PR is from a fork by an author without write access",
 	verdict.ModelChanged:    "the model version changed since calibration; re-run `lgtm replay --write`",
 	verdict.Borderline:      "the score is borderline and an answer changed when the options were reordered",
@@ -203,6 +204,9 @@ func details(r *engine.Result) string {
 		Escape(model), r.Usage.InputTokens, r.CostUSD, r.Calls, Escape(short(r.PR.HeadSHA)))
 	for _, p := range r.Partial {
 		fmt.Fprintf(&b, "- Partial view: %s\n", Escape(p))
+	}
+	for _, a := range r.AutoRuns {
+		fmt.Fprintf(&b, "- Auto-run: %s in %s\n", Escape(a.What), Escape(a.Path))
 	}
 	for _, s := range r.LockSources {
 		fmt.Fprintf(&b, "- Lockfile source: %s resolves from %s\n", Escape(s.Path), Escape(s.Host))

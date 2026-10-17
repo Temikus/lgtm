@@ -235,7 +235,7 @@ The 22 attacks below were collected after the `malicious` wording was written, t
   - It also lowered legitimate PRs by about 0.05. One telemetry PR fell to 0.38 and would have been denied.
   - It was tried with 80 more hard-good PRs that change editor, dev container, git-hook, or agent config. 62 of them touch those paths.
   - It was reverted. Trying it also spent this holdout on that technique.
-  - Editor auto-run may suit a deterministic check better, like the lockfile one: a `tasks.json` task with `runOn: folderOpen` that runs a network fetch.
+- **A deterministic check does the job instead.** Any added VS Code folder-open task or AI-agent hook now holds approve. On the stored data it holds all 6 auto-run attacks, including `zetamvp`. It also holds 3 of the 80 legitimate PRs that change editor or agent config, and nothing else.
 
 ### Blind spots
 

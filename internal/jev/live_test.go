@@ -46,3 +46,40 @@ func TestDecide_Live(t *testing.T) {
 		t.Errorf("usage not decoded: %+v", resp.Usage)
 	}
 }
+
+// TestDecide_LiveDatedSnapshot checks a config can pin the exact version the
+// short name points at, as the PRD suggests for an exact pin.
+func TestDecide_LiveDatedSnapshot(t *testing.T) {
+	key := os.Getenv("OPENROUTER_API_KEY")
+	if os.Getenv("LGTM_INTEGRATION") != "1" || key == "" {
+		t.Skip("needs LGTM_INTEGRATION=1 and OPENROUTER_API_KEY")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	base, err := BaseURL("openrouter", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := NewClient(base, key)
+	req := Request{Model: model, State: map[string]any{"message": "hi"}, Questions: map[string]Question{"greeting": {Type: Noul, Instructions: "Is `message` a greeting?"}}}
+	resp, err := c.Decide(ctx, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Model = resp.Model
+	pinned, err := c.Decide(ctx, req)
+	t.Logf("short name served %s; requesting it gave %v, err %v", resp.Model, modelOf(pinned), err)
+	if err != nil {
+		t.Fatalf("dated versions can't be requested: %v", err)
+	}
+	if pinned.Model != resp.Model {
+		t.Errorf("asked for %s, served %s", resp.Model, pinned.Model)
+	}
+}
+
+func modelOf(r *Response) string {
+	if r == nil {
+		return ""
+	}
+	return r.Model
+}

@@ -142,6 +142,7 @@ func (c *Client) Decide(ctx context.Context, req Request) (*Response, error) {
 }
 
 func (c *Client) post(ctx context.Context, body []byte) ([]byte, time.Duration, error) {
+	// #nosec G704 -- baseURL is a hardcoded provider URL or an https override from the environment; see BaseURL.
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/systemone", bytes.NewReader(body))
 	if err != nil {
 		return nil, 0, fmt.Errorf("creating decision request: %w", err)
@@ -151,7 +152,7 @@ func (c *Client) post(ctx context.Context, body []byte) ([]byte, time.Duration, 
 	httpReq.Header.Set("HTTP-Referer", "https://github.com/Temikus/lgtm")
 	httpReq.Header.Set("X-Title", "LGTM")
 
-	resp, err := c.http.Do(httpReq)
+	resp, err := c.http.Do(httpReq) // #nosec G704 -- see above
 	if err != nil {
 		return nil, 0, fmt.Errorf("sending decision request: %w", err)
 	}

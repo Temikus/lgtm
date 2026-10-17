@@ -20,16 +20,28 @@ type LockSource struct {
 // composer.lock is left out: its dist URLs point at GitHub for every
 // package.
 var lockKeys = map[string]*regexp.Regexp{
-	"package-lock.json":   regexp.MustCompile(`^\s*"resolved"\s*:`),
-	"npm-shrinkwrap.json": regexp.MustCompile(`^\s*"resolved"\s*:`),
-	"yarn.lock":           regexp.MustCompile(`^\s*resolved\s`),
-	"pnpm-lock.yaml":      regexp.MustCompile(`\btarball\s*:`),
+	"package-lock.json":   npmResolved,
+	"npm-shrinkwrap.json": npmResolved,
+	"yarn.lock":           regexp.MustCompile(`^\s*(resolved\s|resolution:)`), // v1, then Berry
+	"pnpm-lock.yaml":      regexp.MustCompile(`\b(tarball|repo)\s*:`),
 	"Cargo.lock":          regexp.MustCompile(`^\s*source\s*=`),
 	"poetry.lock":         regexp.MustCompile(`^\s*url\s*=`),
-	"uv.lock":             regexp.MustCompile(`^\s*source\s*=`),
+	"uv.lock":             regexp.MustCompile(`\b(source|url)\s*=`), // includes sdist and wheels tables
 	"Gemfile.lock":        regexp.MustCompile(`^\s*remote\s*:`),
-	"Pipfile.lock":        regexp.MustCompile(`^\s*"url"\s*:`),
+	"Pipfile.lock":        regexp.MustCompile(`^\s*"(url|git)"\s*:`),
 	"pubspec.lock":        regexp.MustCompile(`^\s*url\s*:`),
+}
+
+// npmResolved is npm's source key. Its value must be an allowed https URL;
+// anything else, such as file: or git+ssh:, is held.
+var (
+	npmResolved = regexp.MustCompile(`^\s*"resolved"\s*:\s*"([^"]*)"`)
+)
+
+// IsLockfile reports whether p is a lockfile the check reads.
+func IsLockfile(p string) bool {
+	_, ok := lockKeys[path.Base(p)]
+	return ok
 }
 
 // DefaultRegistries are the hosts a lockfile may resolve packages from
@@ -45,9 +57,6 @@ var (
 	scpSource = regexp.MustCompile(`\b[\w.-]+@([\w.-]+):[\w./~-]+`)
 )
 
-// maxLockSources bounds how many sources a report lists.
-const maxLockSources = 10
-
 // lockSources returns the sources that added lines in lockfile patches
 // point at, other than DefaultRegistries.
 func lockSources(files []File) []LockSource {
@@ -61,15 +70,18 @@ func lockSources(files []File) []LockSource {
 			if !strings.HasPrefix(line, "+") || strings.HasPrefix(line, "+++") || !key.MatchString(line[1:]) {
 				continue
 			}
-			for _, src := range sources(line) {
+			// JSON may escape slashes; npm reads the URL either way.
+			line = strings.ReplaceAll(line, `\/`, "/")
+			found := sources(line)
+			if m := npmResolved.FindStringSubmatch(line[1:]); key == npmResolved && m != nil && len(found) == 0 {
+				found = []LockSource{{URL: m[1]}}
+			}
+			for _, src := range found {
 				if allowed(f.Path, src) || slices.ContainsFunc(out, func(s LockSource) bool { return s.URL == src.URL }) {
 					continue
 				}
 				src.Path = f.Path
 				out = append(out, src)
-				if len(out) == maxLockSources {
-					return out
-				}
 			}
 		}
 	}

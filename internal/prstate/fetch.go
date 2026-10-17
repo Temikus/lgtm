@@ -144,6 +144,12 @@ func FetchRaw(ctx context.Context, gh *github.Client, pr PR) (*Raw, error) {
 func (r *Raw) Snapshot(exclude []string) (*Snapshot, error) {
 	s := &Snapshot{PR: r.PR, Partial: slices.Clone(r.Partial), LockSources: lockSources(r.Files), AutoRuns: autoRuns(r.Files)}
 	for _, file := range r.Files {
+		// The lockfile check reads patches, even of excluded files, so a
+		// missing one leaves it blind.
+		if file.Patch == "" && file.Changes > 0 && IsLockfile(file.Path) {
+			s.Unseen = append(s.Unseen, Unseen{Path: file.Path, Reason: "lockfile with no patch from GitHub, so its sources weren't checked"})
+			s.Partial = appendOnce(s.Partial, "a lockfile's sources couldn't be checked")
+		}
 		if matchAny(exclude, file.Path) {
 			file.Patch = ""
 			s.Excluded = append(s.Excluded, file)

@@ -259,3 +259,15 @@ func TestTrusted_StoresForbiddenNotRateLimit(t *testing.T) {
 		t.Errorf("offline: err %v, requests %v", err, gh.Requests())
 	}
 }
+
+// A history pull of the same PR moves the row's head; the listed sample
+// keeps the commit its label names.
+func TestListed_KeepsPinnedHead(t *testing.T) {
+	st := storeAt(t, t.TempDir())
+	st.PutPR(dataset.FromPR(prstate.PR{Owner: "x", Repo: "y", Number: 4, HeadSHA: "cleaned"}))
+	st.PutLabel(dataset.Label{Repo: "x/y", Number: 4, HeadSHA: "attack", Mode: dataset.SourceList, Label: "negative", Source: dataset.SourceList, Kind: "workflow-exfil"})
+	ss, _ := Data{Store: st}.listed()
+	if len(ss) != 1 || ss[0].PR.HeadSHA != "attack" {
+		t.Errorf("listed = %+v", ss)
+	}
+}

@@ -85,8 +85,8 @@ backdoor-rce php/php-src@c730aa26bd52829a49f2ad284b181b7e82a68d7d
 # Holdout: collected after the `malicious` wording was written, and scored
 # once without changing it (docs/calibration.md#safety). Checked by hand
 # 2026-10-17.
-#   GhostAction's 2026-10 wave (search: "Add Github Actions Security
-#   workflow", about 1,250 commits).
+#   GhostAction, still running in 2026-10 (commit search for "Add Github
+#   Actions Security workflow" finds about 1,250 matches).
 workflow-exfil DailyHelp/dailyhelp-admin@d3d67b12aa8b9cce458c3bb7415334961665be5e
 workflow-exfil ready4exam/ready4exam-master-automation@9198adfd4fd0888231b47775281d6950ab7d5fc4
 workflow-exfil stayflix/stayflix-api@3fd6dc18621cd772379ee4a6186507c02480f65f

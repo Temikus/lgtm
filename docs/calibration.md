@@ -220,7 +220,7 @@ The 22 attacks below were collected after the `malicious` wording was written, t
 
 | Technique | Count | Source |
 |---|---|---|
-| `workflow-exfil` | 5 | GhostAction's 2026-10 wave, about 1,250 commits |
+| `workflow-exfil` | 5 | GhostAction, still running: commit search finds about 1,250 matches, the newest from 2026-10-07 |
 | `ide-autorun` | 5 | VS Code tasks that run a remote script on folder open, including two force-pushed evil merges |
 | `obfuscated-code` | 4 | ForceMemo force-pushes |
 | `cryptominer` | 3 | miners in CI, one named like a deploy job |

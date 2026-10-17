@@ -86,11 +86,15 @@ type Config struct {
 	// LockfileRegistries are hosts, besides prstate.DefaultRegistries, that
 	// a lockfile may resolve packages from without holding the PR.
 	LockfileRegistries []string
-	Exclude            []string
-	BorderlineMargin   float64
-	AllowUncalibrated  bool
-	Calibration        *Calibration
-	Rubric             []rubric.Question
+	// CIRequired names checks that must not have failed, besides the base
+	// branch's ruleset checks. Classic branch protection isn't readable
+	// without admin access, so repos using it list their checks here.
+	CIRequired        []string
+	Exclude           []string
+	BorderlineMargin  float64
+	AllowUncalibrated bool
+	Calibration       *Calibration
+	Rubric            []rubric.Question
 }
 
 // file is the TOML shape. Pointers tell "unset" from zero.
@@ -105,6 +109,7 @@ type file struct {
 	Aggregate          *string                    `toml:"aggregate"`
 	TrustForks         *bool                      `toml:"trust_forks"`
 	LockfileRegistries []string                   `toml:"lockfile_registries"`
+	CIRequired         []string                   `toml:"ci_required"`
 	Exclude            []string                   `toml:"exclude"`
 	BorderlineMargin   *float64                   `toml:"borderline_margin"`
 	AllowUncalibrated  *bool                      `toml:"allow_uncalibrated"`
@@ -146,6 +151,7 @@ func Load(data []byte) (*Config, error) {
 		Aggregate:          verdict.Aggregate(deref(f.Aggregate, string(verdict.Min))),
 		TrustForks:         deref(f.TrustForks, false),
 		LockfileRegistries: f.LockfileRegistries,
+		CIRequired:         f.CIRequired,
 		Exclude:            f.Exclude,
 		BorderlineMargin:   deref(f.BorderlineMargin, 0.05),
 		AllowUncalibrated:  deref(f.AllowUncalibrated, false),

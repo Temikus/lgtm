@@ -31,6 +31,7 @@ func TestDefaults_MatchPRDTable(t *testing.T) {
 		"scoped":        {jev.Noul, Gate, Full},
 		"malicious":     {jev.Noul, Veto, Diff},
 		"hygiene":       {jev.Noul, Cap, Diff},
+		"breaks":        {jev.Noul, Cap, Diff},
 		"tested":        {jev.Noul, Info, Diff},
 		"injection":     {jev.Noul, Cap, Full},
 		"described":     {jev.Noul, Info, Full},
@@ -83,7 +84,7 @@ func TestMerge_Veto(t *testing.T) {
 
 func TestDefaults_DiffLocalSet(t *testing.T) {
 	for _, q := range Defaults() {
-		want := q.ID == "malicious" || q.ID == "hygiene" || q.ID == "scoped" || q.ID == "injection"
+		want := q.ID == "malicious" || q.ID == "hygiene" || q.ID == "breaks" || q.ID == "scoped" || q.ID == "injection"
 		if q.DiffLocal != want {
 			t.Errorf("%s DiffLocal = %v, want %v", q.ID, q.DiffLocal, want)
 		}

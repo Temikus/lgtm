@@ -9,6 +9,7 @@ Score **0.12** (approve at ≥ 0.90, deny at ≤ 0.10)
 | aligned | `██████████` | 0.97 |
 | scoped | `██████████` | 0.97 |
 | hygiene (cap) | `██████████` | 0.97 |
+| breaks (cap) | `██████████` | 0.97 |
 | injection (cap) | `██████████` | 0.97 |
 
 Denied because `malicious` is below `veto_at` (0.30), whatever the score.

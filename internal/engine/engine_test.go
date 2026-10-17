@@ -239,3 +239,16 @@ func TestScore_LockfileSourceHolds(t *testing.T) {
 		t.Errorf("an allowed registry still held: %+v", r.Verdict)
 	}
 }
+
+func TestScore_FailedRequiredCheckHolds(t *testing.T) {
+	gh, pr := fakeGitHub(t, false, "write")
+	ci := func(context.Context, prstate.PR) ([]string, error) { return []string{"test"}, nil }
+	r := Score(context.Background(), gh.Client, pr, Options{Config: load(t, ""), Decider: &fakeDecider{}, CI: ci})
+	if r.Verdict.Verdict != verdict.NeedsHuman || !slices.Contains(r.Verdict.Caps, verdict.CIFailing) || len(r.CIFailed) != 1 {
+		t.Errorf("verdict %+v, failed %v", r.Verdict, r.CIFailed)
+	}
+	broken := func(context.Context, prstate.PR) ([]string, error) { return nil, errors.New("403") }
+	if r := Score(context.Background(), gh.Client, pr, Options{Config: load(t, ""), Decider: &fakeDecider{}, CI: broken}); r.Verdict.Verdict != verdict.Approve || r.CIErr == nil {
+		t.Errorf("an unreadable CI status held the PR: %+v, err %v", r.Verdict, r.CIErr)
+	}
+}

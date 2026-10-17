@@ -20,7 +20,7 @@ import (
 
 const (
 	// CheckName is the check run's name; required-check settings match on it.
-	CheckName = "LGTM"
+	CheckName = engine.OwnCheck
 	// NeedsHumanLabel is applied in enforce mode when the verdict escalates.
 	NeedsHumanLabel = "lgtm: needs-human"
 	// ActionsBot posts comments made with the workflow's GITHUB_TOKEN.

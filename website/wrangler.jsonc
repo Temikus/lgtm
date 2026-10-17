@@ -1,0 +1,40 @@
+{
+	"$schema": "./node_modules/wrangler/config-schema.json",
+	"name": "lgtm-website",
+	"main": "src/worker.ts",
+	"compatibility_date": "2026-10-01",
+	"assets": {
+		"directory": "public",
+		"binding": "ASSETS",
+		"run_worker_first": true
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "lgtm-waitlist",
+			// Placeholder until `wrangler d1 create lgtm-waitlist` prints the real ID.
+			"database_id": "00000000-0000-0000-0000-000000000000",
+			"migrations_dir": "migrations"
+		}
+	],
+	"ratelimits": [
+		{
+			"name": "WAITLIST_LIMIT",
+			"namespace_id": "1001",
+			"simple": { "limit": 5, "period": 60 }
+		}
+	],
+	"routes": [
+		{
+			"pattern": "getlgtm.dev",
+			"custom_domain": true
+		},
+		{
+			"pattern": "www.getlgtm.dev",
+			"custom_domain": true
+		}
+	],
+	"observability": {
+		"enabled": true
+	}
+}

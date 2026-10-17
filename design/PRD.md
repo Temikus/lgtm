@@ -351,7 +351,7 @@ It's one landing page:
 4. A table of the parameters.
 5. A copy-paste workflow YAML.
 6. A **waitlist for LGTM Cloud** (the hosted App), stored in D1. This copies liftline's `/api/waitlist` worker and its migrations, with:
-   - a Cloudflare rate-limiting rule on `POST /api/waitlist`;
+   - a Workers rate-limit binding on `POST /api/waitlist` (5 a minute per client IP), so the limit lives in `wrangler.jsonc` and is tested;
    - the same response whether or not the email already exists;
    - server-side email validation and a length cap;
    - a one-line privacy note under the form;
@@ -390,7 +390,7 @@ Progress: 1 to 4 done (2026-10-16). The first replays ([docs/calibration.md](../
 ## Prerequisites
 
 - An `OPENROUTER_API_KEY` with a spend limit, for local integration tests and the dogfood workflow (as a repo secret).
-- `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` as repo secrets, and a D1 database `lgtm-waitlist`.
+- `CLOUDFLARE_API_TOKEN` as a secret in a protected `production` environment, `CLOUDFLARE_ACCOUNT_ID` as a repo variable (the deploy job is skipped until it's set), and a D1 database `lgtm-waitlist` whose ID goes in `website/wrangler.jsonc`.
 - Sign-off on the landing page copy and design before the first deploy.
 - **Open question:** confirm whether `pull_request_review` events on fork PRs receive secrets and a write `GITHUB_TOKEN`. If not (expected), a companion `workflow_run` workflow runs the approval-only flip in the base repo's context; it needs no model key.
 

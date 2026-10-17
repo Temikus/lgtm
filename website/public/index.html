@@ -1,0 +1,406 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LGTM · Know which PRs need a closer look</title>
+    <meta
+      name="description"
+      content="LGTM asks a decision model typed questions about every pull request: aligned, scoped, safe, tested. Clean PRs score high. The rest get flagged for a human."
+    />
+    <link rel="canonical" href="https://getlgtm.dev/" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="theme-color" content="#08130D" />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://getlgtm.dev/" />
+    <meta property="og:site_name" content="LGTM" />
+    <meta property="og:title" content="Know which PRs need a closer look" />
+    <meta property="og:description" content="Score every pull request with a System One decision model. Clean PRs score high; the rest get flagged for a human." />
+    <link rel="preload" href="/fonts/geist.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/geist-mono.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="/main.js" defer></script>
+  </head>
+  <body>
+    <header class="wrap nav">
+      <a class="brand" href="/" aria-label="LGTM home">lgtm<span class="brand-score">+0.97</span></a>
+      <nav aria-label="Main">
+        <a class="nav-link" href="#how">How it works</a>
+        <a class="nav-link" href="#rubric">Rubric</a>
+        <a class="nav-link" href="#install">Install</a>
+        <a class="nav-link" href="https://github.com/Temikus/lgtm">GitHub</a>
+        <a class="pill pill-ink" href="#cloud">Join the Cloud waitlist</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="wrap hero">
+        <h1><span>Know which PRs</span> <span class="accent">need a closer look.</span></h1>
+        <div class="hero-aside">
+          <p class="lede">
+            LGTM asks a decision model typed questions about every pull request: aligned, scoped, safe, tested. Clean PRs
+            score high. The rest get flagged for a human, with the weak spot named.
+          </p>
+          <div class="hero-actions">
+            <a class="pill pill-green" href="#install">Add it to a repo</a>
+            <a class="code-link" href="#install">$ lgtm init</a>
+          </div>
+        </div>
+      </section>
+
+      <section class="wrap split-wrap" aria-label="Code review before and after LGTM">
+        <div class="split">
+          <div class="pane pane-del">
+            <div class="pane-head"><span>review — before</span><span>3 deletions</span></div>
+            <div class="line"><span class="ln">12</span><span class="sign">−</span><span class="text">"LGTM, ship it" after a 40-second skim</span></div>
+            <div class="line"><span class="ln">13</span><span class="sign">−</span><span class="text">Nobody spotted TLS verification switched off</span></div>
+            <div class="line"><span class="ln">14</span><span class="sign">−</span><span class="text">"Approved by security" in the description</span></div>
+          </div>
+          <div class="pane pane-add">
+            <div class="pane-head"><span>review — with lgtm</span><span>3 additions</span></div>
+            <div class="line"><span class="ln">12</span><span class="sign">+</span><span class="text">verdict <mark>needs human</mark> · held by caps</span></div>
+            <div class="line"><span class="ln">13</span><span class="sign">+</span><span class="text">hygiene <mark>0.31</mark> · diff only</span></div>
+            <div class="line"><span class="ln">14</span><span class="sign">+</span><span class="text">injection <mark>0.08</mark> · approve capped</span></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="band band-wash" id="how">
+        <div class="wrap cols">
+          <div class="intro">
+            <p class="eyebrow">How it works</p>
+            <h2>It lives in the PR, next to your reviewers.</h2>
+            <p class="body">
+              Every push gets a check run and one comment that updates in place. LGTM never approves or merges. A human
+              still does that, with the weak spots already marked.
+            </p>
+          </div>
+          <ol class="timeline">
+            <li class="event">
+              <span class="who">a teammate pushed 1 commit</span>
+              <code class="commit">a3f9c21 Retry 429s with backoff</code>
+            </li>
+            <li class="event event-flag">
+              <article class="comment" aria-label="LGTM comment">
+                <header class="comment-head"><strong>LGTM</strong><span class="flag">0.92 · needs human review</span></header>
+                <div class="comment-body">
+                  <p class="score-line"><span>Score</span><strong>0.92</strong><span>approve ≥ 0.90 · deny ≤ 0.10</span></p>
+                  <ul class="checks">
+                    <li class="check check-low"><span class="check-id">hygiene (cap)</span><span class="bar" aria-hidden="true"><i class="v31"></i></span><span class="check-v">0.31</span></li>
+                    <li class="check"><span class="check-id">scoped</span><span class="bar" aria-hidden="true"><i class="v92"></i></span><span class="check-v">0.92</span></li>
+                    <li class="check"><span class="check-id">breaks (cap)</span><span class="bar" aria-hidden="true"><i class="v94"></i></span><span class="check-v">0.94</span></li>
+                    <li class="check"><span class="check-id">aligned</span><span class="bar" aria-hidden="true"><i class="v96"></i></span><span class="check-v">0.96</span></li>
+                    <li class="check"><span class="check-id">injection (cap)</span><span class="bar" aria-hidden="true"><i class="v97"></i></span><span class="check-v">0.97</span></li>
+                    <li class="check"><span class="check-id">malicious (veto)</span><span class="bar" aria-hidden="true"><i class="v98"></i></span><span class="check-v">0.98</span></li>
+                  </ul>
+                  <p class="held">Held at needs human: a cap question is below <code>cap_at</code>.</p>
+                  <p class="comment-foot">▸ Details · typesafe/jev-1.13 · 4,210 input tokens · $0.00018</p>
+                </div>
+              </article>
+            </li>
+            <li class="event">
+              <span class="who">a teammate pushed 1 commit</span>
+              <code class="commit">b71e0d4 Drop the debug TLS override</code>
+            </li>
+            <li class="event event-pass">
+              <div class="check-run"><strong>LGTM</strong><span class="pass">0.92 · approve</span><span class="note">comment updated in place</span></div>
+            </li>
+            <li class="event event-review">
+              <strong>a reviewer approved these changes</strong>
+              <span class="note">and read the TLS fix first</span>
+            </li>
+          </ol>
+        </div>
+      </section>
+
+      <section class="band band-ink">
+        <div class="wrap">
+          <div class="system-head">
+            <div class="intro">
+              <p class="eyebrow">Why it's cheap and fast</p>
+              <h2 class="h2-xl">System One, <span class="accent">not a chatbot.</span></h2>
+            </div>
+            <p class="body">
+              Decision models answer a typed question with a probability, the way you'd glance at a diff and know it's
+              off. No essay and no reasoning trace to read.
+            </p>
+          </div>
+          <dl class="facts">
+            <div class="fact">
+              <dt class="fact-n">0–1</dt>
+              <dd>
+                <strong>Numbers, not prose.</strong>
+                <span>Every question returns a value between 0 and 1. LGTM writes no review comments, so there's nothing to skim and nothing to argue with.</span>
+              </dd>
+            </div>
+            <div class="fact">
+              <dt class="fact-n">&lt;1¢</dt>
+              <dd>
+                <strong>A fraction of a cent per PR.</strong>
+                <span>Cheap enough to score every push. Bring your own OpenRouter key and give it a spend limit.</span>
+              </dd>
+            </div>
+            <div class="fact">
+              <dt class="fact-n">0</dt>
+              <dd>
+                <strong>Paths that default to approve.</strong>
+                <span>Timeouts, provider errors, partial diffs, and fork authors all land on needs human. It fails closed.</span>
+              </dd>
+            </div>
+          </dl>
+        </div>
+      </section>
+
+      <section class="band band-rubric" id="rubric">
+        <div class="wrap cols">
+          <div class="intro intro-narrow">
+            <p class="eyebrow">The rubric</p>
+            <h2>Ten questions. One verdict.</h2>
+            <p class="body">
+              Gates decide the score: the lowest one wins. A cap can only hold an approve back, and a veto denies on its
+              own. Info questions show up in the comment and gate nothing.
+            </p>
+            <p class="body body-muted">
+              Questions marked "diff only" never see the PR title or description, so "approved by security" in the body
+              can't sway them.
+            </p>
+          </div>
+          <table class="rubric">
+            <thead>
+              <tr><th scope="col">Question</th><th scope="col">Answer</th><th scope="col">Role</th><th scope="col">Sees</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row"><code>aligned</code><span>Does the diff do what the PR says it does?</span></th>
+                <td>yes / no</td><td><span class="role role-gate">gate</span></td><td>everything</td>
+              </tr>
+              <tr>
+                <th scope="row"><code>scoped</code><span>Is every change needed for that goal?</span></th>
+                <td>yes / no</td><td><span class="role role-gate">gate</span></td><td>everything</td>
+              </tr>
+              <tr>
+                <th scope="row"><code>malicious</code><span>No exfiltration, backdoors, or hidden payloads?</span></th>
+                <td>yes / no</td><td><span class="role role-veto">veto</span></td><td><strong>diff only</strong></td>
+              </tr>
+              <tr>
+                <th scope="row"><code>hygiene</code><span>No secrets, injection bugs, or disabled TLS?</span></th>
+                <td>yes / no</td><td><span class="role role-cap">cap</span></td><td><strong>diff only</strong></td>
+              </tr>
+              <tr>
+                <th scope="row"><code>breaks</code><span>Is it free of changes likely to break the build?</span></th>
+                <td>yes / no</td><td><span class="role role-cap">cap</span></td><td><strong>diff only</strong></td>
+              </tr>
+              <tr>
+                <th scope="row"><code>injection</code><span>Is anyone lobbying the reviewer for a verdict?</span></th>
+                <td>yes / no</td><td><span class="role role-cap">cap</span></td><td>everything</td>
+              </tr>
+              <tr>
+                <th scope="row"><code>tested</code><span>If behaviour changed, did the tests change too?</span></th>
+                <td>yes / no</td><td><span class="role role-info">info</span></td><td><strong>diff only</strong></td>
+              </tr>
+              <tr>
+                <th scope="row"><code>described</code><span>Does the description say why, not only what?</span></th>
+                <td>yes / no</td><td><span class="role role-info">info</span></td><td>everything</td>
+              </tr>
+              <tr>
+                <th scope="row"><code>risk</code><span>If it has a bug, how much could break?</span></th>
+                <td>3 choices</td><td><span class="role role-info">info</span></td><td>everything</td>
+              </tr>
+              <tr>
+                <th scope="row"><code>reviewability</code><span>Can one reviewer check it in one sitting?</span></th>
+                <td>5-level score</td><td><span class="role role-info">info</span></td><td>everything</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="band band-wash">
+        <div class="wrap cols cols-tight">
+          <div class="intro intro-narrow">
+            <p class="eyebrow">Calibration</p>
+            <h2>Shadow first. Enforce when the numbers earn it.</h2>
+            <p class="body">
+              The rubric lives in <code>.github/lgtm.toml</code> and is read from the base branch, so a PR can't edit it.
+              <code>lgtm replay</code> fits thresholds to your merge history, and enforce mode won't turn on without them.
+            </p>
+          </div>
+          <figure class="file">
+            <figcaption class="file-head"><span>.github/lgtm.toml</span><span class="file-stat">+12 −1</span></figcaption>
+            <div class="diff">
+              <div class="dl"><span class="ln">11</span><span class="sign"></span><span class="c-comment"># Run in shadow first, then calibrate.</span></div>
+              <div class="dl dl-del"><span class="ln">12</span><span class="sign">−</span><span>mode = "<mark>shadow</mark>"</span></div>
+              <div class="dl dl-add"><span class="ln">12</span><span class="sign">+</span><span>mode = "<mark>enforce</mark>"</span></div>
+              <div class="dl"><span class="ln">13</span><span class="sign"></span><span>approve_at = 0.9</span></div>
+              <div class="dl"><span class="ln">14</span><span class="sign"></span><span>deny_at = 0.1</span></div>
+              <div class="dl dl-add"><span class="ln">15</span><span class="sign">+</span><span></span></div>
+              <div class="dl dl-add"><span class="ln">16</span><span class="sign">+</span><span>[calibration]<span class="c-comment c-note"># written by lgtm replay --write</span></span></div>
+              <div class="dl dl-add"><span class="ln">17</span><span class="sign">+</span><span>model = "typesafe/jev-1.13"</span></div>
+              <div class="dl dl-add"><span class="ln">18</span><span class="sign">+</span><span>snapshot = "typesafe/jev-1.13-20260917"</span></div>
+              <div class="dl dl-add"><span class="ln">19</span><span class="sign">+</span><span>approve_at = 0.93</span></div>
+              <div class="dl dl-add"><span class="ln">20</span><span class="sign">+</span><span>deny_at = 0.08</span></div>
+              <div class="dl dl-add"><span class="ln">21</span><span class="sign">+</span><span>false_approve = 0.04</span></div>
+              <div class="dl dl-add"><span class="ln">22</span><span class="sign">+</span><span>false_deny = 0.01</span></div>
+              <div class="dl dl-add"><span class="ln">23</span><span class="sign">+</span><span></span></div>
+              <div class="dl dl-add"><span class="ln">24</span><span class="sign">+</span><span>[questions.described]</span></div>
+              <div class="dl dl-add"><span class="ln">25</span><span class="sign">+</span><span>gate = true</span></div>
+            </div>
+          </figure>
+        </div>
+      </section>
+
+      <section class="band" id="install">
+        <div class="wrap">
+          <div class="intro">
+            <p class="eyebrow">Install</p>
+            <h2>Shadow mode in four steps.</h2>
+          </div>
+          <div class="install">
+            <ol class="steps">
+              <li>
+                <span class="step-n">01</span>
+                <div><strong>Write the workflows</strong><span><code>lgtm init</code> adds two workflows and a commented <code>.github/lgtm.toml</code>.</span></div>
+              </li>
+              <li>
+                <span class="step-n">02</span>
+                <div><strong>Add a spend-limited key</strong><span><code>gh secret set OPENROUTER_API_KEY</code>. Give it its own limit.</span></div>
+              </li>
+              <li>
+                <span class="step-n">03</span>
+                <div><strong>Watch it in shadow mode</strong><span>Every PR gets a check and one comment that updates in place. Nothing is gated.</span></div>
+              </li>
+              <li>
+                <span class="step-n">04</span>
+                <div><strong>Calibrate, then enforce</strong><span><code>lgtm replay</code> fits thresholds to your merge history. Enforce mode needs that calibration.</span></div>
+              </li>
+            </ol>
+            <figure class="file file-new">
+              <figcaption class="file-head">
+                <span class="file-name">.github/workflows/lgtm.yml <span class="tag">new file</span></span>
+                <button class="pill pill-green pill-sm" type="button" data-copy="workflow" hidden>Copy</button>
+              </figcaption>
+              <div class="code">
+                <pre class="gutter" aria-hidden="true"> 1 +
+ 2 +
+ 3 +
+ 4 +
+ 5 +
+ 6 +
+ 7 +
+ 8 +
+ 9 +
+10 +
+11 +
+12 +
+13 +
+14 +
+15 +
+16 +
+17 +
+18 +
+19 +
+20 +
+21 +
+22 +
+23 +
+24 +
+25 +
+26 +
+27 +
+28 +
+29 +
+30 +
+31 +
+32 +
+33 +
+34 +
+35 +
+36 +
+37 +
+38 +
+39 +</pre>
+                <pre><code id="workflow"># LGTM scores pull requests with a System One decision model.
+# https://github.com/Temikus/lgtm
+name: LGTM
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+  pull_request_review:
+    types: [submitted]
+
+permissions: {}
+
+concurrency:
+  # Per event, so a review can't cancel a scoring run or the other way round.
+  group: lgtm-${{ github.event_name }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  lgtm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      checks: write
+      pull-requests: write
+      issues: write
+      contents: read
+      # Read-only: lets LGTM see commit statuses from CI that isn't Actions.
+      statuses: read
+    # pull_request_target gives this job secrets and a write token while the
+    # PR is untrusted. Never add a checkout or any other step to this job:
+    # PR code running here would get both. LGTM reads the diff through the
+    # API and its config from the base branch.
+    steps:
+      # For supply-chain safety, pin to a full commit SHA instead:
+      #   uses: Temikus/lgtm@&lt;commit SHA&gt; # v0
+      - uses: Temikus/lgtm@v0
+        with:
+          # Use a dedicated key with a spend limit.
+          api-key: ${{ secrets.OPENROUTER_API_KEY }}</code></pre>
+              </div>
+            </figure>
+          </div>
+        </div>
+      </section>
+
+      <section class="band band-forest" id="cloud">
+        <div class="wrap cloud">
+          <div class="cloud-copy">
+            <p class="eyebrow">LGTM Cloud</p>
+            <h2 class="h2-xxl">No YAML. No keys. Just the score.</h2>
+            <p class="body">A hosted GitHub App is on the way. Leave your email and we'll tell you when it opens.</p>
+            <div class="signup">
+              <form action="/api/waitlist" method="post">
+                <label class="visually-hidden" for="email">Email address</label>
+                <input id="email" type="email" name="email" placeholder="you@company.com" autocomplete="email" maxlength="254" required />
+                <div class="honeypot" aria-hidden="true">
+                  <label>Company <input type="text" name="company" tabindex="-1" autocomplete="off" /></label>
+                </div>
+                <button class="pill pill-mint" type="submit">Join the waitlist</button>
+              </form>
+              <p class="signup-done" role="status" hidden><strong>You're on the list.</strong> We'll email you once, when Cloud opens.</p>
+              <p class="signup-note">We store your email to tell you when Cloud opens, and for nothing else. <a href="/privacy">Privacy</a></p>
+            </div>
+          </div>
+          <div class="stamp" aria-hidden="true"><span class="stamp-big">COMING<br />SOON</span><span class="stamp-small">LGTM · CLOUD</span></div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="wrap footer-inner">
+        <div class="footer-copy">
+          <a class="brand brand-dark" href="/" aria-label="LGTM home">lgtm<span class="brand-score">+0.97</span></a>
+          <p>A mistake detector, not a security boundary. Run it alongside required human reviewers, never instead of them.</p>
+        </div>
+        <nav aria-label="Footer">
+          <a href="https://github.com/Temikus/lgtm">GitHub</a>
+          <a href="https://github.com/Temikus/lgtm/security/policy">Security</a>
+          <a href="/privacy">Privacy</a>
+          <a class="faint" href="https://github.com/Temikus/lgtm/blob/main/LICENSE">Apache-2.0</a>
+        </nav>
+      </div>
+    </footer>
+  </body>
+</html>

@@ -23,9 +23,9 @@ test kind="all":
     #!/usr/bin/env bash
     set -euo pipefail
     case "{{kind}}" in
-      all)  just test unit; [ -d website ] && just test site || true ;;
+      all)  just test unit; if [ -d website ]; then just test site; fi ;;
       unit) go test -race -count=1 ./... ;;
-      site) cd website && npm ci && npx vitest run ;;
+      site) cd website && npm ci && npx tsc --noEmit && npx vitest run ;;
       integration)
         : "${OPENROUTER_API_KEY:?set OPENROUTER_API_KEY}"
         LGTM_INTEGRATION=1 go test -tags integration -race -count=1 -v ./... ;;

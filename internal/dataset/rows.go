@@ -32,7 +32,9 @@ type PR struct {
 	LinkedIssues  []string   `parquet:"linked_issues,list"`
 	TrustChecked  bool       `parquet:"trust_checked"`
 	AuthorTrusted bool       `parquet:"author_trusted"`
-	TrustErr      string     `parquet:"trust_err"` // why the check couldn't be made, such as no permission to ask
+	TrustErr      string     `parquet:"trust_err"`     // why the check couldn't be made, such as no permission to ask
+	TrustBy       string     `parquet:"trust_by,dict"` // GitHub login that made the check
+	TrustAt       *time.Time `parquet:"trust_at,optional,timestamp(millisecond)"`
 	FetchedAt     time.Time  `parquet:"fetched_at,timestamp(millisecond)"`
 }
 

@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"sync"
 	"time"
 
 	"github.com/Temikus/lgtm/internal/jev"
@@ -13,10 +14,17 @@ import (
 // Cache answers a request it has seen from the store, at no cost, and
 // stores new replies. Rescore always asks the model. Put it outside any
 // budget guard, so hits don't count as spend.
+//
+// A short model name can move to a new dated version without notice, so a
+// stored reply is used only if it came from the version the provider served
+// last in this run. The first call through a new Cache always asks.
 type Cache struct {
 	Decider jev.Decider
 	Store   *Store
 	Rescore bool
+
+	mu      sync.Mutex
+	serving string
 }
 
 var _ jev.Decider = (*Cache)(nil)
@@ -27,7 +35,10 @@ func (c *Cache) Decide(ctx context.Context, req jev.Request) (*jev.Response, err
 		return c.Decider.Decide(ctx, req)
 	}
 	if !c.Rescore {
-		if r, ok := c.Store.Response(key); ok {
+		c.mu.Lock()
+		serving := c.serving
+		c.mu.Unlock()
+		if r, ok := c.Store.Response(key); ok && serving != "" && r.Served == serving {
 			if resp, err := r.response(); err == nil {
 				return resp, nil
 			}
@@ -37,6 +48,9 @@ func (c *Cache) Decide(ctx context.Context, req jev.Request) (*jev.Response, err
 	if err != nil || resp == nil {
 		return resp, err
 	}
+	c.mu.Lock()
+	c.serving = resp.Model
+	c.mu.Unlock()
 	if row, err := responseRow(key, req.Model, resp); err == nil {
 		c.Store.PutResponse(row)
 	}

@@ -59,7 +59,7 @@ func TestStore_RoundTrip(t *testing.T) {
 	pr.Created, pr.Closed, pr.Comments, pr.FetchedAt = Time(t0), Time(t0.Add(time.Hour)), 3, t0
 	s.PutPR(pr)
 	s.PutRaw(sampleRaw(), t0)
-	s.PutTrust("o/r", 7, true, "")
+	s.PutTrust("o/r", 7, Trust{Trusted: true, By: "me", At: t0})
 	s.PutLabel(Label{Repo: "o/r", Number: 7, HeadSHA: "h", Mode: "strict", Label: "positive", Reason: "approved by bob", Source: "history", LabelledAt: t0})
 	s.PutResponse(Response{Key: "k1", Model: "m", Served: "m-1", Answers: `{"a":{"type":"noul","noul":0.9}}`, CostUSD: 0.001, CreatedAt: t0})
 	s.AddScores([]Score{{RunID: "run1", Repo: "o/r", Number: 7, Question: "safe", Value: 0.97, Label: "positive", CreatedAt: t0}})

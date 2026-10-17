@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/google/go-github/v92/github"
@@ -57,17 +58,37 @@ func (d Data) Fetcher(gh *github.Client) prstate.Fetcher {
 	}
 }
 
+// forbiddenTTL is how long a stored 403 from the permission API holds
+// before it is checked again, in case the login has since gained access.
+const forbiddenTTL = 30 * 24 * time.Hour
+
 // Trusted answers the fork author check from the store, then from GitHub.
-// It stores a refusal to say (403), which won't change for this token, but
-// not other failures, which are retried next run.
+// It stores a refusal to say (403), which the same login would get again,
+// so a different login, or one after forbiddenTTL, checks again. Other
+// failures aren't stored and are retried next run. Offline runs use what
+// is stored, whoever checked it.
 func (d Data) Trusted(gh *github.Client) func(context.Context, prstate.PR) (bool, error) {
+	var (
+		once  sync.Once
+		login string
+	)
+	me := func(ctx context.Context) string {
+		once.Do(func() {
+			if u, _, err := gh.Users.Get(ctx, ""); err == nil {
+				login = u.GetLogin()
+			}
+		})
+		return login
+	}
 	return func(ctx context.Context, pr prstate.PR) (bool, error) {
 		if d.Store != nil {
 			if r, ok := d.Store.PR(dataset.Repo(pr), pr.Number); ok && r.TrustChecked {
-				if r.TrustErr != "" {
+				switch {
+				case r.TrustErr == "":
+					return r.AuthorTrusted, nil
+				case d.Offline || (r.TrustBy != "" && r.TrustBy == me(ctx) && r.TrustAt != nil && d.now().Sub(*r.TrustAt) < forbiddenTTL):
 					return false, errors.New(r.TrustErr)
 				}
-				return r.AuthorTrusted, nil
 			}
 		}
 		if d.Offline {
@@ -77,9 +98,9 @@ func (d Data) Trusted(gh *github.Client) func(context.Context, prstate.PR) (bool
 		if d.Store != nil {
 			switch {
 			case err == nil:
-				d.Store.PutTrust(dataset.Repo(pr), pr.Number, ok, "")
+				d.Store.PutTrust(dataset.Repo(pr), pr.Number, dataset.Trust{Trusted: ok, At: d.now()})
 			case forbidden(err):
-				d.Store.PutTrust(dataset.Repo(pr), pr.Number, false, err.Error())
+				d.Store.PutTrust(dataset.Repo(pr), pr.Number, dataset.Trust{Err: err.Error(), By: me(ctx), At: d.now()})
 			}
 		}
 		return ok, err

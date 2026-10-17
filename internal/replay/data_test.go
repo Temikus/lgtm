@@ -49,7 +49,7 @@ func TestRun_SecondRunReadsTheDataset(t *testing.T) {
 	dir := t.TempDir()
 	model := &countCalls{Decider: &judge{snapshots: []string{"20260917"}}}
 	o := runOpts(t, model)
-	o.Perturb = false
+	o.Perturb, o.Concurrency = false, 1
 	o.Data = Data{Store: storeAt(t, dir)}
 	first, err := Run(context.Background(), gh.Client, o)
 	if err != nil {
@@ -69,8 +69,9 @@ func TestRun_SecondRunReadsTheDataset(t *testing.T) {
 	if got := perPR(gh.Requests()); len(got) != 0 {
 		t.Errorf("second run re-read PRs: %v", got)
 	}
-	if model.n.Load() != calls || second.CostUSD != 0 {
-		t.Errorf("second run asked the model: %d calls after %d, cost %v", model.n.Load(), calls, second.CostUSD)
+	// Only the first call asks, to learn which version is being served.
+	if model.n.Load() != calls+1 {
+		t.Errorf("second run asked the model %d times, want 1", model.n.Load()-calls)
 	}
 	if len(second.Points) != len(first.Points) || second.Calibration == nil || *second.Calibration != *first.Calibration {
 		t.Errorf("second run differs: %d points, calibration %+v vs %+v", len(second.Points), second.Calibration, first.Calibration)
@@ -89,6 +90,19 @@ func TestRun_SecondRunReadsTheDataset(t *testing.T) {
 	if len(offline.Points) != len(first.Points) {
 		t.Errorf("offline points = %d, want %d", len(offline.Points), len(first.Points))
 	}
+
+	// When the short name moves to a new version, stored replies from the
+	// old one are asked again, and the fit is for the new version only.
+	moved := &countCalls{Decider: &judge{snapshots: []string{"20261101"}}}
+	o.Decider, o.Data = moved, Data{Store: storeAt(t, dir), Offline: true}
+	swapped, err := Run(context.Background(), gh.Client, o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if swapped.Calibration == nil || swapped.Calibration.Snapshot != "typesafe/jev-1.13-20261101" || moved.n.Load() < int64(len(first.Points)) {
+		t.Errorf("after a version change: calibration %+v, %d calls for %d PRs", swapped.Calibration, moved.n.Load(), len(first.Points))
+	}
+	o.Decider = model
 
 	// Rescore asks the model again.
 	o.Data, o.Rescore = Data{Store: storeAt(t, dir), Offline: true}, true
@@ -177,10 +191,12 @@ func TestRun_KnownBad(t *testing.T) {
 	}
 }
 
-// A 403 from the permission API won't change for this token, so it is
-// stored; a rate limit is retried.
+// A 403 from the permission API is stored for the login that got it; a
+// rate limit is retried.
 func TestTrusted_StoresForbiddenNotRateLimit(t *testing.T) {
+	login := "me"
 	gh := ghtest.New(t)
+	gh.Mux.HandleFunc("GET /user", func(w http.ResponseWriter, _ *http.Request) { ghtest.JSON(w, 200, map[string]any{"login": login}) })
 	gh.Mux.HandleFunc("GET /repos/o/r/collaborators/eve/permission", ghtest.Reply(403, map[string]string{"message": "Must have push access to view repository collaborator permission."}))
 	gh.Mux.HandleFunc("GET /repos/o/r/collaborators/mal/permission", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("X-RateLimit-Remaining", "0")
@@ -192,25 +208,48 @@ func TestTrusted_StoresForbiddenNotRateLimit(t *testing.T) {
 	mal := prstate.PR{Owner: "o", Repo: "r", Number: 2, HeadSHA: "h2", Author: "mal", Fork: true}
 	st.PutPR(dataset.FromPR(eve))
 	st.PutPR(dataset.FromPR(mal))
-	trusted := Data{Store: st}.Trusted(gh.Client)
+	now := t0
+	data := Data{Store: st, Now: func() time.Time { return now }}
+	count := func(user string) int {
+		n := 0
+		for _, r := range gh.Requests() {
+			if strings.HasSuffix(r, "/"+user+"/permission") {
+				n++
+			}
+		}
+		return n
+	}
+	check := func(pr prstate.PR) {
+		t.Helper()
+		if ok, err := data.Trusted(gh.Client)(context.Background(), pr); ok || err == nil {
+			t.Errorf("%s: trusted %v, err %v; want untrusted with an error", pr.Author, ok, err)
+		}
+	}
+
 	for range 2 {
-		if ok, err := trusted(context.Background(), eve); ok || err == nil {
-			t.Errorf("eve: trusted %v, err %v; want untrusted with the 403", ok, err)
-		}
-		if ok, err := trusted(context.Background(), mal); ok || err == nil {
-			t.Errorf("mal: trusted %v, err %v", ok, err)
-		}
+		check(eve)
+		check(mal)
 	}
-	var eveReqs, malReqs int
-	for _, r := range gh.Requests() {
-		switch {
-		case strings.HasSuffix(r, "/eve/permission"):
-			eveReqs++
-		case strings.HasSuffix(r, "/mal/permission"):
-			malReqs++
-		}
+	if count("eve") != 1 || count("mal") != 2 {
+		t.Errorf("permission requests: eve %d (want 1), mal %d (want 2)", count("eve"), count("mal"))
 	}
-	if eveReqs != 1 || malReqs != 2 {
-		t.Errorf("permission requests: eve %d (want 1), mal %d (want 2)", eveReqs, malReqs)
+
+	// Another login may have push access, so it checks again.
+	login = "maintainer"
+	check(eve)
+	if count("eve") != 2 {
+		t.Errorf("a different login reused the stored 403: %d requests", count("eve"))
+	}
+	// So does the same login once the stored answer is old.
+	now = now.Add(forbiddenTTL + time.Hour)
+	check(eve)
+	if count("eve") != 3 {
+		t.Errorf("an expired 403 was reused: %d requests", count("eve"))
+	}
+	// Offline uses whatever is stored.
+	gh.Reset()
+	data.Offline = true
+	if _, err := data.Trusted(nil)(context.Background(), eve); err == nil || len(gh.Requests()) != 0 {
+		t.Errorf("offline: err %v, requests %v", err, gh.Requests())
 	}
 }

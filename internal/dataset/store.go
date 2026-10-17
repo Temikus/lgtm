@@ -120,7 +120,7 @@ func (s *Store) PutPR(r PR) {
 	}
 	if old, ok := s.prs.rows[r.key()]; ok && old.HeadSHA == r.HeadSHA {
 		r.FilesFetched, r.FetchPartial, r.LinkedIssues = old.FilesFetched, old.FetchPartial, old.LinkedIssues
-		r.TrustChecked, r.AuthorTrusted, r.TrustErr = old.TrustChecked, old.AuthorTrusted, old.TrustErr
+		r.TrustChecked, r.AuthorTrusted, r.TrustErr, r.TrustBy, r.TrustAt = old.TrustChecked, old.AuthorTrusted, old.TrustErr, old.TrustBy, old.TrustAt
 	}
 	s.prs.put(r)
 }
@@ -159,16 +159,24 @@ func (s *Store) PutRaw(raw *prstate.Raw, at time.Time) {
 	s.dirtyDiff[k] = true
 }
 
-// PutTrust records whether repo#n's author has write access, or why that
-// couldn't be checked. It does nothing if the PR isn't stored.
-func (s *Store) PutTrust(repo string, n int, trusted bool, why string) {
+// Trust is the outcome of a fork author check.
+type Trust struct {
+	Trusted bool
+	Err     string // why the check couldn't be made; empty when it was
+	By      string // GitHub login that made the check
+	At      time.Time
+}
+
+// PutTrust records repo#n's author check. It does nothing if the PR isn't
+// stored.
+func (s *Store) PutTrust(repo string, n int, t Trust) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	r, ok := s.prs.rows[prKey(repo, int64(n))]
 	if !ok {
 		return
 	}
-	r.TrustChecked, r.AuthorTrusted, r.TrustErr = true, trusted, why
+	r.TrustChecked, r.AuthorTrusted, r.TrustErr, r.TrustBy, r.TrustAt = true, t.Trusted, t.Err, t.By, Time(t.At.UTC())
 	s.prs.put(r)
 }
 

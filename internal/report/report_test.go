@@ -192,3 +192,13 @@ func TestJSON(t *testing.T) {
 		}
 	}
 }
+
+// Caps only hold approve, so on a deny they read as extra context.
+func TestComment_CapsOnDeny(t *testing.T) {
+	r := vetoed()
+	r.Verdict.Caps = []verdict.CapKind{verdict.UntrustedAuthor}
+	c := Comment(r)
+	if strings.Contains(c, "Held at needs-human") || !strings.Contains(c, "Would also hold approve because:") {
+		t.Errorf("comment:\n%s", c)
+	}
+}

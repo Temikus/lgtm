@@ -53,6 +53,56 @@ func TestLockSources_NoLookalikes(t *testing.T) {
 	}
 }
 
+// Source forms a first version missed (code review, 2026-10-17).
+func TestLockSources_OtherForms(t *testing.T) {
+	for _, tt := range []struct{ path, line string }{
+		{"uv.lock", `+sdist = { url = "https://evil.example/pkg-1.0.tar.gz", hash = "sha256:00" }`},
+		{"uv.lock", `+wheels = [{ url = "https://evil.example/pkg-1.0-py3-none-any.whl" }]`},
+		{"yarn.lock", `+  resolution: "left-pad@https://evil.example/left-pad.tgz"`},
+		{"pnpm-lock.yaml", `+    resolution: {commit: abc, repo: https://evil.example/x.git, type: git}`},
+		{"Pipfile.lock", `+            "git": "https://evil.example/x.git",`},
+		{"package-lock.json", `+      "resolved": "https:\/\/evil.example\/x.tgz",`},
+		{"package-lock.json", `+      "resolved": "file:../vendored/x.tgz",`},
+	} {
+		if got := lockSources([]File{{Path: tt.path, Patch: tt.line}}); len(got) == 0 {
+			t.Errorf("%s %s: not held", tt.path, tt.line)
+		}
+	}
+	if got := lockSources([]File{{Path: "uv.lock", Patch: `+sdist = { url = "https://files.pythonhosted.org/p/x.tar.gz" }`}}); len(got) != 0 {
+		t.Errorf("PyPI file held: %+v", got)
+	}
+}
+
+// Every source is kept, so a config allowlist applied later can't hide one
+// behind many allowed ones.
+func TestLockSources_NoLimit(t *testing.T) {
+	var patch string
+	for i := 0; i < 20; i++ {
+		patch += `+      "resolved": "https://npm.corp.example/p` + string(rune('a'+i)) + `.tgz",` + "\n"
+	}
+	patch += `+      "resolved": "https://evil.example/x.tgz",` + "\n"
+	got := lockSources([]File{{Path: "package-lock.json", Patch: patch}})
+	if len(got) != 21 || got[20].Host != "evil.example" {
+		t.Errorf("got %d sources, last %+v", len(got), got[len(got)-1])
+	}
+}
+
+// A lockfile GitHub sent no patch for can't be checked, so the view is
+// partial and approve is held.
+func TestSnapshot_LockfileWithoutPatchIsPartial(t *testing.T) {
+	raw := &Raw{Files: []File{
+		{Path: "package-lock.json", Status: "modified", Changes: 20000},
+		{Path: "main.go", Status: "modified", Changes: 1, Patch: "+package main"},
+	}}
+	s, err := raw.Snapshot([]string{"**/package-lock.json"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Partial) == 0 {
+		t.Errorf("partial = %v, unseen = %v", s.Partial, s.Unseen)
+	}
+}
+
 // Excluded lockfiles lose their patch, but the check reads them first.
 func TestSnapshot_LockSourcesSurviveExclude(t *testing.T) {
 	raw := &Raw{Files: []File{

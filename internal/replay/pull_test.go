@@ -23,6 +23,9 @@ func TestParseList(t *testing.T) {
 	if _, err := ParseList(strings.NewReader("attack x/y#4@abc\n")); err == nil {
 		t.Error("a short SHA should be rejected")
 	}
+	if _, err := ParseList(strings.NewReader("attack x/y#0\n")); err == nil {
+		t.Error("PR #0 should be rejected")
+	}
 	if got, err := ParseList(strings.NewReader("attack x/y@" + sha + "\n")); err != nil || got[0].Number != 0 || got[0].SHA != sha {
 		t.Errorf("commit = %+v, %v", got, err)
 	}

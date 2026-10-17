@@ -113,6 +113,10 @@ func Decide(p Policy, in Input) Result {
 	}
 	agg, err := aggregate(p.Aggregate, in.Values)
 	if err != nil {
+		// A clear veto answer still denies when another question failed.
+		if id := vetoed(p, in.Values); id != "" {
+			return Result{Verdict: Deny, Raw: NeedsHuman, Vetoed: id, Caps: caps(p, in)}
+		}
 		return Result{Verdict: NeedsHuman, Raw: NeedsHuman, Failure: err}
 	}
 	r := Result{Aggregate: agg, Raw: threshold(p, agg)}
@@ -133,7 +137,7 @@ func Decide(p Policy, in Input) Result {
 // caps returns the caps that don't need a model call, in rule order.
 func caps(p Policy, in Input) []CapKind {
 	var out []CapKind
-	if slices.ContainsFunc(in.Values, func(v Value) bool { return v.Role == rubric.Cap && v.Value < v.capAt(p) }) {
+	if slices.ContainsFunc(in.Values, func(v Value) bool { return v.Role == rubric.Cap && v.Err == nil && v.Value < v.capAt(p) }) {
 		out = append(out, CapQuestion)
 	}
 	if in.Partial {
@@ -174,7 +178,7 @@ func (v Value) capAt(p Policy) float64 {
 func vetoed(p Policy, values []Value) string {
 	id, low := "", p.VetoAt
 	for _, v := range values {
-		if v.Role == rubric.Veto && v.Value < low {
+		if v.Role == rubric.Veto && v.Err == nil && !math.IsNaN(v.Value) && v.Value < low {
 			id, low = v.ID, v.Value
 		}
 	}

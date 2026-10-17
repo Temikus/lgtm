@@ -2,42 +2,45 @@ package prstate
 
 import (
 	"path"
-	"regexp"
 	"strings"
 )
 
-// AutoRun is a command a diff sets to run on its own on a developer's
-// machine: an editor task on folder open, or an AI-agent hook. Attacks use
-// these to run code without anyone starting it (docs/calibration.md#safety).
+// AutoRun is a file the diff changes that sets commands to run on their
+// own on a developer's machine: editor tasks, dev containers, git hooks,
+// and AI-agent hooks. Attacks use these to run code without anyone
+// starting it (docs/calibration.md#safety). Any change to one holds,
+// because a command edit or a trigger outside the patch's context would
+// slip past a check of the trigger line alone.
 type AutoRun struct {
 	Path, What string
 }
 
-var (
-	folderOpen = regexp.MustCompile(`"runOn"\s*:\s*"folderOpen"`)
-	agentHook  = regexp.MustCompile(`"(SessionStart|SessionEnd|UserPromptSubmit|PreToolUse|PostToolUse|Notification|Stop|SubagentStop|PreCompact)"\s*:`)
-)
+// autoRunKind names what p configures, or "" if it isn't an auto-run file.
+func autoRunKind(p string) string {
+	base, dir := path.Base(p), "/"+path.Dir(p)+"/"
+	switch {
+	case base == "tasks.json" && strings.HasSuffix(dir, "/.vscode/"), strings.HasSuffix(base, ".code-workspace"):
+		return "editor tasks"
+	case strings.Contains(dir, "/.devcontainer/"), base == ".devcontainer.json":
+		return "dev container commands"
+	case strings.Contains(dir, "/.husky/"), strings.Contains(dir, "/.githooks/"):
+		return "git hooks"
+	case (base == "settings.json" || base == "settings.local.json") && (strings.HasSuffix(dir, "/.claude/") || strings.HasSuffix(dir, "/.gemini/")),
+		base == "hooks.json" && strings.HasSuffix(dir, "/.cursor/"):
+		return "AI-agent settings and hooks"
+	}
+	return ""
+}
 
-// autoRuns returns the auto-run commands that added lines set up.
+// IsAutoRun reports whether p is an auto-run file.
+func IsAutoRun(p string) bool { return autoRunKind(p) != "" }
+
+// autoRuns returns the auto-run files the diff adds or changes.
 func autoRuns(files []File) []AutoRun {
 	var out []AutoRun
 	for _, f := range files {
-		var re *regexp.Regexp
-		var what string
-		switch base := path.Base(f.Path); {
-		case base == "tasks.json" && strings.Contains(f.Path, ".vscode/"), strings.HasSuffix(base, ".code-workspace"):
-			re, what = folderOpen, "editor task that runs on folder open"
-		case (base == "settings.json" || base == "settings.local.json") && (strings.Contains(f.Path, ".claude/") || strings.Contains(f.Path, ".gemini/")),
-			base == "hooks.json" && strings.Contains(f.Path, ".cursor/"):
-			re, what = agentHook, "AI-agent hook"
-		default:
-			continue
-		}
-		for _, line := range strings.Split(f.Patch, "\n") {
-			if strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++") && re.MatchString(line) {
-				out = append(out, AutoRun{Path: f.Path, What: what})
-				break
-			}
+		if k := autoRunKind(f.Path); k != "" && f.Status != "removed" {
+			out = append(out, AutoRun{Path: f.Path, What: k})
 		}
 	}
 	return out

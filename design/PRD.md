@@ -342,7 +342,7 @@ It's one landing page:
 
 ## Milestones
 
-Progress: 1 to 4 done (2026-10-16). The first replays ([docs/calibration.md](../docs/calibration.md)) found that the default rubric approves nothing yet: `injection`, `tested`, and `scoped` need rewording, and caps need their own threshold. A holdout replay on kubernetes-sigs/cluster-api and a set of known-bad PRs (2026-10-17) back both changes: no attack or injection attempt was approved, and spam is held only by the untrusted-author cap. These are open decisions. The local replay dataset (2026-10-17) cut a repeat cluster-api pull from 844 GitHub calls to 113, and an offline replay to none and $0.
+Progress: 1 to 4 done (2026-10-16). The first replays ([docs/calibration.md](../docs/calibration.md)) found that the default rubric approves nothing yet: `injection`, `tested`, and `scoped` need rewording, and caps need their own threshold. A holdout replay on kubernetes-sigs/cluster-api and a set of known-bad PRs (2026-10-17) back both changes: no attack or injection attempt was approved, and spam is held only by the untrusted-author cap. These are open decisions. The local replay dataset (2026-10-17) cut a repeat cluster-api pull from 844 GitHub calls to 113, and an offline replay to none and $0. More data the same day (node and home-assistant strict negatives, 164 known-good PRs that talk to AI) supports a cap threshold near 0.3 with the reworded `injection`, and shows the min-of-gates aggregate does no better than chance on reviewed negatives, mainly because of `tested`.
 
 1. **Bootstrap.**
    - Public repo with an Apache-2.0 license and a `SECURITY.md`.

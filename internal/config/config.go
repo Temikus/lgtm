@@ -275,15 +275,11 @@ func (c *Config) validate() error {
 	if c.MaxChangedLines < 0 {
 		return fmt.Errorf("max_changed_lines must not be negative, got %d", c.MaxChangedLines)
 	}
-	for _, g := range c.Sensitive {
-		if !doublestar.ValidatePattern(g) {
-			return fmt.Errorf("sensitive_paths: invalid glob %q", g)
-		}
+	if err := validGlobs("sensitive_paths", c.Sensitive); err != nil {
+		return err
 	}
-	for _, g := range c.Exclude {
-		if !doublestar.ValidatePattern(g) {
-			return fmt.Errorf("exclude: invalid glob %q", g)
-		}
+	if err := validGlobs("exclude", c.Exclude); err != nil {
+		return err
 	}
 	if err := c.validateCalibration(); err != nil {
 		return err
@@ -358,4 +354,13 @@ func deref[T any](p *T, def T) T {
 		return def
 	}
 	return *p
+}
+
+func validGlobs(key string, globs []string) error {
+	for _, g := range globs {
+		if !doublestar.ValidatePattern(g) {
+			return fmt.Errorf("%s: invalid glob %q", key, g)
+		}
+	}
+	return nil
 }

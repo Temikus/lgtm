@@ -109,20 +109,20 @@ gate = true
 
 func TestLoad_Rejects(t *testing.T) {
 	tests := map[string]struct{ toml, want string }{
-		"base url in toml":              {`base_url = "https://evil.example"`, "LGTM_BASE_URL"},
-		"http base url":                 {`base_url = "http://evil.example"`, "LGTM_BASE_URL"},
-		"unknown key":                   {`aprove_at = 0.9`, "aprove_at"},
-		"unknown provider":              {`provider = "evil"`, "provider"},
-		"bad mode":                      {`mode = "yolo"`, "mode"},
-		"deny above approve":            {"approve_at = 0.5\ndeny_at = 0.6", "deny_at"},
-		"approve at one":                {"approve_at = 1.0", "approve_at"},
-		"deny at zero":                  {"deny_at = 0.0", "deny_at"},
-		"bad aggregate":                 {`aggregate = "max"`, "aggregate"},
-		"cap at zero":                   {"cap_at = 0.0", "cap_at"},
-		"cap at one":                    {"cap_at = 1.0", "cap_at"},
-		"cap above approve":             {"approve_at = 0.5\ndeny_at = 0.1\ncap_at = 0.6", "cap_at"},
-		"veto at zero":                  {"veto_at = 0.0", "veto_at"},
-		"veto at approve":               {"approve_at = 0.5\ndeny_at = 0.1\ncap_at = 0.3\nveto_at = 0.5", "veto_at"},
+		"base url in toml":   {`base_url = "https://evil.example"`, "LGTM_BASE_URL"},
+		"http base url":      {`base_url = "http://evil.example"`, "LGTM_BASE_URL"},
+		"unknown key":        {`aprove_at = 0.9`, "aprove_at"},
+		"unknown provider":   {`provider = "evil"`, "provider"},
+		"bad mode":           {`mode = "yolo"`, "mode"},
+		"deny above approve": {"approve_at = 0.5\ndeny_at = 0.6", "deny_at"},
+		"approve at one":     {"approve_at = 1.0", "approve_at"},
+		"deny at zero":       {"deny_at = 0.0", "deny_at"},
+		"bad aggregate":      {`aggregate = "max"`, "aggregate"},
+		"cap at zero":        {"cap_at = 0.0", "cap_at"},
+		"cap at one":         {"cap_at = 1.0", "cap_at"},
+		"cap above approve":  {"approve_at = 0.5\ndeny_at = 0.1\ncap_at = 0.6", "cap_at"},
+		"veto at zero":       {"veto_at = 0.0", "veto_at"},
+		"veto at approve":    {"approve_at = 0.5\ndeny_at = 0.1\ncap_at = 0.3\nveto_at = 0.5", "veto_at"},
 		"no gates": {`
 [questions.aligned]
 gate = false

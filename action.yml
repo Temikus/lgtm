@@ -26,7 +26,7 @@ runs:
   using: docker
   # Main builds from source. Each release tag points at a commit that
   # replaces this line with the signed GHCR image's digest (release.yml).
-  image: Dockerfile
+  image: docker://ghcr.io/temikus/lgtm@sha256:a0a52273d3cff0339989c3e5b1ae1d632f50727432e10995d041982acd747c68 # v0.1.0
   args: [action]
   env:
     GITHUB_TOKEN: ${{ inputs.github-token }}

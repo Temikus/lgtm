@@ -9,7 +9,7 @@ LGTM asks a decision model such as TypeSafe's Jev (`typesafe/jev-1.13`) a set of
 
 LGTM doesn't write review comments, approve PRs, or merge. It's a mistake detector, not a security boundary: run it alongside required human reviewers, never instead of them.
 
-> **Status:** pre-release. See [design/PRD.md](design/PRD.md).
+> **Status:** v0, early. See [design/PRD.md](design/PRD.md) and the [releases](https://github.com/Temikus/lgtm/releases).
 
 ## Set up
 

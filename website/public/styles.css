@@ -814,6 +814,149 @@ h1 span {
   color: #55595f;
 }
 
+/* Gated runs */
+
+.runs {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.run {
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  background: #fff;
+}
+
+.run-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 12px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--rule);
+  font: 400 13px/20px var(--mono);
+}
+
+.run-pr {
+  display: flex;
+  gap: 10px;
+}
+
+.run-n {
+  color: var(--muted);
+}
+
+.run-pr strong {
+  font: 600 15px/20px var(--sans);
+}
+
+.run-checks {
+  padding: 0;
+  list-style: none;
+}
+
+.job {
+  display: grid;
+  grid-template-columns: 18px 150px 1fr 56px 84px;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 20px;
+  font-size: 15px;
+  line-height: 20px;
+}
+
+.job + .job {
+  border-top: 1px solid var(--rule-soft);
+}
+
+.job::before {
+  content: "";
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+}
+
+.job-pass {
+  position: relative;
+}
+
+.job-pass::before {
+  background: var(--green);
+}
+
+/* The tick: two borders of a rotated box, centred on the dot. */
+.job-pass::after {
+  content: "";
+  position: absolute;
+  top: 22px;
+  left: 27px;
+  width: 4px;
+  height: 8px;
+  border: solid #fff;
+  border-width: 0 1.6px 1.6px 0;
+  transform: translateY(-60%) rotate(45deg);
+}
+
+.job-held::before {
+  background: var(--amber);
+}
+
+.job-wait::before {
+  border: 1.5px dashed var(--ln);
+}
+
+.job-name {
+  font-weight: 600;
+}
+
+.job-status {
+  color: var(--muted);
+}
+
+.job-status.pass,
+.job-status.flag {
+  font-weight: 600;
+}
+
+.job-status.pass {
+  color: var(--green);
+}
+
+.job-status.flag {
+  color: var(--amber);
+}
+
+.job-time,
+.job-cost {
+  font: 400 13px/20px var(--mono);
+  text-align: right;
+}
+
+.job-time {
+  color: var(--muted);
+}
+
+.job-wait .job-name,
+.job-wait .job-cost {
+  color: var(--comment);
+  font-weight: 500;
+}
+
+.runs-foot {
+  padding: 4px 20px 0;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 22px;
+}
+
+.runs-foot strong {
+  margin-right: 6px;
+  color: var(--ink);
+  font: 700 15px/22px var(--mono);
+}
+
 /* Files and diffs */
 
 .file {
@@ -1352,6 +1495,30 @@ h1 span {
   .check-id {
     width: 112px;
     font-size: 13px;
+  }
+
+  .job {
+    grid-template-columns: 18px 1fr auto;
+    row-gap: 2px;
+    padding-inline: 14px;
+  }
+
+  .job-pass::after {
+    left: 21px;
+  }
+
+  .job-status {
+    grid-column: 2 / -1;
+    grid-row: 2;
+  }
+
+  .job-time {
+    display: none;
+  }
+
+  .run-head,
+  .runs-foot {
+    padding-inline: 14px;
   }
 
   .comment-body,

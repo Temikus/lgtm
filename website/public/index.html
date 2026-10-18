@@ -151,6 +151,39 @@
         </div>
       </section>
 
+      <section class="band band-wash">
+        <div class="wrap cols cols-tight">
+          <div class="intro intro-narrow">
+            <p class="eyebrow">Before the expensive stuff</p>
+            <h2>Score first. Spend after.</h2>
+            <p class="body">
+              LGTM answers in seconds for a fraction of a cent. Put it in front of the jobs that cost real money: GPU
+              suites, preview deploys, LLM reviewers. They wait until the LGTM check passes, on an approve score or a
+              human's approval.
+            </p>
+          </div>
+          <div class="runs">
+            <article class="run" aria-label="Checks on pull request 412">
+              <header class="run-head"><span class="run-pr"><span class="run-n">#412</span><strong>Retry 429s with backoff</strong></span><span class="pass">3 checks passed</span></header>
+              <ul class="run-checks">
+                <li class="job job-pass"><span class="job-name">LGTM</span><span class="job-status pass">0.96 · approve</span><span class="job-time">6s</span><span class="job-cost">$0.0002</span></li>
+                <li class="job job-pass"><span class="job-name">e2e · gpu-4x</span><span class="job-status">ran after LGTM passed</span><span class="job-time">38m</span><span class="job-cost">$4.10</span></li>
+                <li class="job job-pass"><span class="job-name">LLM review</span><span class="job-status">ran after LGTM passed</span><span class="job-time">3m</span><span class="job-cost">$0.80</span></li>
+              </ul>
+            </article>
+            <article class="run" aria-label="Checks on pull request 413">
+              <header class="run-head"><span class="run-pr"><span class="run-n">#413</span><strong>Rewrite session handling</strong></span><span class="flag">held for a human</span></header>
+              <ul class="run-checks">
+                <li class="job job-held"><span class="job-name">LGTM</span><span class="job-status flag">0.41 · needs human</span><span class="job-time">5s</span><span class="job-cost">$0.0003</span></li>
+                <li class="job job-wait"><span class="job-name">e2e · gpu-4x</span><span class="job-status">held until LGTM passes</span><span class="job-time">–</span><span class="job-cost">$0</span></li>
+                <li class="job job-wait"><span class="job-name">LLM review</span><span class="job-status">held until LGTM passes</span><span class="job-time">–</span><span class="job-cost">$0</span></li>
+              </ul>
+            </article>
+            <p class="runs-foot"><strong>$4.90 not spent</strong> on #413 until someone decides it's worth running.</p>
+          </div>
+        </div>
+      </section>
+
       <section class="band band-rubric" id="rubric">
         <div class="wrap cols">
           <div class="intro intro-narrow">

@@ -101,6 +101,16 @@ func (env Env) score(ctx context.Context, pr prstate.PR) (int, error) {
 	_, _ = fmt.Fprint(env.Log, report.Text(r))
 
 	pub := ghout.Publisher{GH: env.GH, PR: pr, CommentAuthor: env.CommentAuthor}
+	// A re-score of the same commit, such as after an edit or a reopen, keeps
+	// an approval it already has. If the check fails, the PR stays held.
+	if cfg.Mode == config.Enforce && r.Verdict.Verdict == verdict.NeedsHuman {
+		ok, by, err := trust.HumanApproval(ctx, env.GH, pr)
+		if err != nil {
+			_, _ = fmt.Fprintln(env.Log, "lgtm: can't read approvals, so the PR stays held:", err)
+		} else if ok {
+			pub.ApprovedBy = by
+		}
+	}
 	if err := pub.Publish(ctx, r); err != nil {
 		return 1, err
 	}
@@ -110,6 +120,10 @@ func (env Env) score(ctx context.Context, pr prstate.PR) (int, error) {
 	if env.SetOutput != nil {
 		env.SetOutput("verdict", string(r.Verdict.Verdict))
 		env.SetOutput("score", fmt.Sprintf("%.4f", r.Verdict.Aggregate))
+	}
+	if pub.ApprovedBy != "" {
+		_, _ = fmt.Fprintf(env.Log, "lgtm: %s already approved %s\n", pub.ApprovedBy, pr.HeadSHA)
+		return 0, nil
 	}
 	return exitCode(cfg.Mode, r.Verdict.Verdict), nil
 }

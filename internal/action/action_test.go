@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"sync"
@@ -300,5 +301,51 @@ func TestRun_WorkflowRunFromOtherEventIgnored(t *testing.T) {
 	ev := event(t, map[string]any{"workflow_run": map[string]any{"event": "pull_request_target", "head_sha": "head111"}})
 	if code, err := Run(context.Background(), env(w, "workflow_run", ev, &fakeDecider{})); err != nil || code != 0 || len(w.writes) != 0 {
 		t.Errorf("code = %d err = %v writes = %v", code, err, w.writes)
+	}
+}
+
+func TestRun_RescoreKeepsApprovalOfSameCommit(t *testing.T) {
+	w := newWorld(t, enforce)
+	w.reviews = []any{map[string]any{"user": map[string]any{"login": "alice"}, "state": "APPROVED", "commit_id": "head111"}}
+	w.perms["alice"] = "write"
+
+	code, err := Run(context.Background(), env(w, "pull_request_target", event(t, map[string]any{"action": "edited", "pull_request": prJSON(false)}), &fakeDecider{noul: 0.5}))
+	if err != nil || code != 0 {
+		t.Fatalf("code = %d err = %v", code, err)
+	}
+	check := w.bodies["POST /repos/o/r/check-runs"]
+	if check["conclusion"] != "success" || !strings.Contains(fmt.Sprint(check["external_id"]), "verdict=approve") {
+		t.Errorf("check = %v", check)
+	}
+	if w.wrote("POST /repos/o/r/issues/7/labels") || !w.wrote("DELETE /repos/o/r/issues/7/labels/{name}") {
+		t.Errorf("writes = %v; an approved PR must not carry the needs-human label", w.writes)
+	}
+}
+
+func TestRun_RescoreIgnoresApprovalOfOtherCommit(t *testing.T) {
+	w := newWorld(t, enforce)
+	w.reviews = []any{map[string]any{"user": map[string]any{"login": "alice"}, "state": "APPROVED", "commit_id": "old000"}}
+	w.perms["alice"] = "write"
+
+	code, err := Run(context.Background(), env(w, "pull_request_target", event(t, map[string]any{"action": "synchronize", "pull_request": prJSON(false)}), &fakeDecider{noul: 0.5}))
+	if err != nil || code != 1 {
+		t.Fatalf("code = %d err = %v", code, err)
+	}
+	if w.bodies["POST /repos/o/r/check-runs"]["conclusion"] != "failure" {
+		t.Error("an approval of an earlier commit must not carry over")
+	}
+}
+
+func TestRun_ApprovalDoesNotOverrideDeny(t *testing.T) {
+	w := newWorld(t, enforce)
+	w.reviews = []any{map[string]any{"user": map[string]any{"login": "alice"}, "state": "APPROVED", "commit_id": "head111"}}
+	w.perms["alice"] = "write"
+
+	code, err := Run(context.Background(), env(w, "pull_request_target", event(t, map[string]any{"action": "edited", "pull_request": prJSON(false)}), &fakeDecider{noul: 0.01}))
+	if err != nil || code != 1 {
+		t.Fatalf("code = %d err = %v", code, err)
+	}
+	if w.bodies["POST /repos/o/r/check-runs"]["conclusion"] != "failure" {
+		t.Error("a deny stays a deny after an approval")
 	}
 }

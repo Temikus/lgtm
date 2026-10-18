@@ -38,6 +38,9 @@ type Publisher struct {
 	// CommentAuthor is whose sticky comment to update: ActionsBot in the
 	// Action, the token's user for `lgtm score --post`.
 	CommentAuthor string
+	// ApprovedBy is a qualifying human who already approved the scored SHA.
+	// It passes a needs-human verdict in enforce mode, never a deny.
+	ApprovedBy string
 }
 
 // Publish posts the check run, sticky comment, and label for r.
@@ -49,23 +52,33 @@ func (p Publisher) Publish(ctx context.Context, r *engine.Result) error {
 		return err
 	}
 	if r.Mode == config.Enforce {
-		return p.Label(ctx, r.Verdict.Verdict == verdict.NeedsHuman)
+		return p.Label(ctx, r.Verdict.Verdict == verdict.NeedsHuman && !p.approved(r))
 	}
 	return nil
 }
 
+func (p Publisher) approved(r *engine.Result) bool {
+	return p.ApprovedBy != "" && r.Mode == config.Enforce && r.Verdict.Verdict == verdict.NeedsHuman
+}
+
 // Check creates a completed LGTM check run on the scored SHA.
 func (p Publisher) Check(ctx context.Context, r *engine.Result) error {
+	st := State{Mode: r.Mode, Verdict: r.Verdict.Verdict}
+	ext, conclusion, title, summary := EncodeState(st), report.Conclusion(r), report.Title(r), report.Summary(r)
+	if p.approved(r) {
+		ext, title, summary = approvedOutput(st, p.ApprovedBy, summary)
+		conclusion = "success"
+	}
 	_, _, err := p.GH.Checks.CreateCheckRun(ctx, p.PR.Owner, p.PR.Repo, github.CreateCheckRunOptions{
 		Name:        CheckName,
 		HeadSHA:     p.PR.HeadSHA,
-		ExternalID:  new(EncodeState(State{Mode: r.Mode, Verdict: r.Verdict.Verdict})),
+		ExternalID:  new(ext),
 		Status:      new("completed"),
-		Conclusion:  new(report.Conclusion(r)),
+		Conclusion:  new(conclusion),
 		CompletedAt: &github.Timestamp{Time: time.Now()},
 		Output: &github.CheckRunOutput{
-			Title:   new(report.Title(r)),
-			Summary: new(capSummary(report.Summary(r))),
+			Title:   new(title),
+			Summary: new(capSummary(summary)),
 		},
 	})
 	if err != nil {
@@ -167,13 +180,10 @@ func FindCheck(ctx context.Context, gh *github.Client, owner, repo, sha string) 
 // human approval. No model call is involved.
 func MarkApproved(ctx context.Context, gh *github.Client, owner, repo string, run *github.CheckRun, by string) error {
 	st, _ := DecodeState(run.GetExternalID())
-	st.Verdict = verdict.Approve
-	title := fmt.Sprintf("approved by %s · LGTM had asked for human review", by)
-	summary := fmt.Sprintf("A human with write access (%s) approved this commit, so the check passes.\n\n%s",
-		report.Escape(by), run.GetOutput().GetSummary())
+	ext, title, summary := approvedOutput(st, by, run.GetOutput().GetSummary())
 	_, _, err := gh.Checks.UpdateCheckRun(ctx, owner, repo, run.GetID(), github.UpdateCheckRunOptions{
 		Name:        CheckName,
-		ExternalID:  new(EncodeState(st) + " human=1"),
+		ExternalID:  new(ext),
 		Status:      new("completed"),
 		Conclusion:  new("success"),
 		CompletedAt: &github.Timestamp{Time: time.Now()},
@@ -183,6 +193,15 @@ func MarkApproved(ctx context.Context, gh *github.Client, owner, repo string, ru
 		return fmt.Errorf("updating check run: %w", err)
 	}
 	return nil
+}
+
+// approvedOutput is the check run state, title, and summary for a
+// needs-human verdict that a qualifying human approved.
+func approvedOutput(st State, by, summary string) (ext, title, sum string) {
+	st.Verdict = verdict.Approve
+	return EncodeState(st) + " human=1",
+		fmt.Sprintf("approved by %s · LGTM had asked for human review", by),
+		fmt.Sprintf("A human with write access (%s) approved this commit, so the check passes.\n\n%s", report.Escape(by), summary)
 }
 
 func capSummary(s string) string {

@@ -87,6 +87,18 @@ It then scores the labelled PRs and picks the lowest `approve_at` that approves 
 
 Replay keeps PRs, labels, diffs, and model replies in Parquet files under your cache directory (`lgtm data dir` prints it), so a rerun reads only the PR list and asks the model only about calls it hasn't seen. `--offline` reads nothing from GitHub, and `--rescore` asks the model again. The first model call of each run always goes to the model, and stored replies are reused only if they came from the version it serves now, so a silent model update can't hide behind the cache. To start again, delete the directory. Every run also adds per-question scores to a `scores` table you can query, for example with DuckDB: `select * from read_parquet('<dir>/scores/*.parquet', union_by_name=true)`.
 
+## Verify a release
+
+Each release tag pins `action.yml` to a GHCR image by digest, so a tag can't start running a different binary. `lgtm init` uses the `v0` tag; for full immutability, pin the release commit's SHA instead. The image and the release archives are signed with keyless cosign and carry build provenance:
+
+```sh
+gh attestation verify oci://ghcr.io/temikus/lgtm@sha256:<digest> --repo Temikus/lgtm
+gh attestation verify lgtm_<version>_linux_amd64.tar.gz --repo Temikus/lgtm
+cosign verify-blob checksums.txt --bundle checksums.txt.bundle \
+  --certificate-identity https://github.com/Temikus/lgtm/.github/workflows/release.yml@refs/heads/main \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
 ## Data
 
 LGTM sends PR content (title, description, linked issue titles, and diffs) to the model provider. Paths matched by `exclude` are never sent. On OpenRouter, turn on the data-policy setting that refuses providers which train on inputs. Request bodies are never logged unless `LGTM_DEBUG=1`, and Action logs on public repos are public. `lgtm replay` and `lgtm data` keep PR content and model replies on your machine, in the dataset directory; delete it, or pass `--no-data`, to keep nothing.
@@ -99,6 +111,8 @@ Uses [mise](https://mise.jdx.dev) for tools and [just](https://just.systems) for
 mise install
 just check                 # lint + unit tests
 just test integration      # live Jev API; needs OPENROUTER_API_KEY
+just release-dry           # build release archives locally
+just release minor         # start the release workflow for the next minor version
 ```
 
 ## License

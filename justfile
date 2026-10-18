@@ -52,11 +52,14 @@ site-dev:
 site-deploy:
     cd website && npm ci && npx wrangler d1 migrations apply lgtm-waitlist --remote && npx wrangler deploy
 
-# Tag and push a release: patch, minor, or major. Triggers the release workflow.
+# Start the release workflow for the next patch, minor, or major version.
+# Release tags sit on commits off main, so read the highest tag, not git describe.
 release bump:
     #!/usr/bin/env bash
     set -euo pipefail
-    last=$(git describe --tags --abbrev=0 --match 'v*.*.*' 2>/dev/null || echo v0.0.0)
+    git fetch -q --tags origin
+    last=$(git tag --list 'v*.*.*' --sort=-v:refname | head -1)
+    last=${last:-v0.0.0}
     IFS=. read -r major minor patch <<<"${last#v}"
     case "{{bump}}" in
       patch) patch=$((patch+1)) ;;
@@ -65,5 +68,9 @@ release bump:
       *) echo "usage: just release [patch|minor|major]" >&2; exit 2 ;;
     esac
     next="v${major}.${minor}.${patch}"
-    git tag -a "$next" -m "$next"
-    git push origin "$next"
+    gh workflow run release.yml --ref main -f version="$next"
+    echo "Started the $next release: https://github.com/Temikus/lgtm/actions/workflows/release.yml"
+
+# Build release archives locally without publishing
+release-dry:
+    goreleaser release --snapshot --clean --skip=sign,sbom

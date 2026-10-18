@@ -69,7 +69,7 @@ release bump:
     esac
     next="v${major}.${minor}.${patch}"
     gh workflow run release.yml --ref main -f version="$next"
-    echo "Started the $next release: $(gh run list --workflow release.yml --limit 1 --json url --jq '.[0].url')"
+    echo "Started the $next release: https://github.com/Temikus/lgtm/actions/workflows/release.yml"
 
 # Build release archives locally without publishing
 release-dry:

@@ -40,6 +40,12 @@ signs:
     signature: "${artifact}.bundle"
     args: [sign-blob, --yes, "--bundle=${signature}", "${artifact}"]
 
+# A draft until release.yml's verify job passes; re-runs replace it.
+release:
+  draft: true
+  replace_existing_draft: true
+  replace_existing_artifacts: true
+
 changelog:
   use: github
   sort: asc

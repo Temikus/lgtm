@@ -12,8 +12,7 @@
 		{
 			"binding": "DB",
 			"database_name": "lgtm-waitlist",
-			// Placeholder until `wrangler d1 create lgtm-waitlist` prints the real ID.
-			"database_id": "00000000-0000-0000-0000-000000000000",
+			"database_id": "34969def-e1b3-4a58-90d6-fe8decb46ede",
 			"migrations_dir": "migrations"
 		}
 	],

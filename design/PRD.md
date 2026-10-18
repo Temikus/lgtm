@@ -392,7 +392,7 @@ Progress: 1 to 4 done (2026-10-16). Milestone 5's site is merged (2026-10-17), b
 - An `OPENROUTER_API_KEY` with a spend limit, for local integration tests and the dogfood workflow (as a repo secret).
 - `CLOUDFLARE_API_TOKEN` as a secret in a protected `production` environment, `CLOUDFLARE_ACCOUNT_ID` as a repo variable (the deploy job is skipped until it's set), and a D1 database `lgtm-waitlist` whose ID goes in `website/wrangler.jsonc`.
 - Sign-off on the landing page copy and design before the first deploy.
-- **Open question:** confirm whether `pull_request_review` events on fork PRs receive secrets and a write `GITHUB_TOKEN`. If not (expected), a companion `workflow_run` workflow runs the approval-only flip in the base repo's context; it needs no model key.
+- **Fork review events, confirmed (2026-10-18, `Temikus/lgtm-e2e#3`):** a `pull_request_review` event on a fork PR gets no secrets and a read-only token, so the `lgtm-review.yml` `workflow_run` job flips the check in the base repo's context. That job needs `pull-requests: write` to remove the needs-human label. GitHub held the review event's run for a first-time contributor (`action_required`, no jobs) until a maintainer re-ran it; scoring on `pull_request_target` isn't held.
 
 ## Risks
 

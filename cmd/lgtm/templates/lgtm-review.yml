@@ -18,7 +18,8 @@ jobs:
     permissions:
       checks: write
       issues: write
-      pull-requests: read
+      # Write: removing a label from a PR needs it; issues: write alone gets a 403.
+      pull-requests: write
       contents: read
     # No checkout or other steps here either: see lgtm.yml.
     steps:

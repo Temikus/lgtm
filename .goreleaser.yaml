@@ -1,0 +1,48 @@
+version: 2
+project_name: lgtm
+
+builds:
+  - id: lgtm
+    main: ./cmd/lgtm
+    binary: lgtm
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w -X main.version={{.Tag}} -X main.commit={{.Commit}}
+
+archives:
+  - id: default
+    ids: [lgtm]
+    formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+# Needs syft on PATH; release.yml installs it.
+sboms:
+  - artifacts: archive
+
+# Keyless cosign over the checksums file, which lists every archive's hash.
+# Needs id-token: write in release.yml.
+signs:
+  - id: cosign
+    cmd: cosign
+    artifacts: checksum
+    signature: "${artifact}.bundle"
+    args: [sign-blob, --yes, "--bundle=${signature}", "${artifact}"]
+
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude:
+      - "^Pin the Action image"

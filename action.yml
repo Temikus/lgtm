@@ -24,7 +24,8 @@ outputs:
 
 runs:
   using: docker
-  # Replaced by a digest-pinned GHCR image at release.
+  # Main builds from source. Each release tag points at a commit that
+  # replaces this line with the signed GHCR image's digest (release.yml).
   image: Dockerfile
   args: [action]
   env:

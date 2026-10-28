@@ -3,7 +3,7 @@ module github.com/Temikus/lgtm
 go 1.27.0
 
 require (
-	github.com/bmatcuk/doublestar/v4 v4.10.3
+	github.com/bmatcuk/doublestar/v4 v4.10.4
 	github.com/google/go-github/v92 v92.0.0
 	github.com/parquet-go/parquet-go v0.32.0
 	github.com/pelletier/go-toml/v2 v2.4.3

@@ -9,12 +9,12 @@
     "deploy": "wrangler d1 migrations apply lgtm-waitlist --remote && wrangler deploy"
   },
   "devDependencies": {
-    "@cloudflare/vitest-plugin": "^1.2.8",
+    "@cloudflare/vitest-plugin": "^1.4.9",
     "@cloudflare/workers-types": "^5.20260926.1",
     "@vitest/runner": "^4.1.11",
     "@vitest/snapshot": "^4.1.11",
     "typescript": "^7.0.2",
     "vitest": "^4.1.11",
-    "wrangler": "^4.141.0"
+    "wrangler": "^4.154.0"
   }
 }

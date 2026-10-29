@@ -1,0 +1,28 @@
+<!-- lgtm -->
+### LGTM (shadow) · would have: needs human review
+
+Kept at needs human review because an earlier score of this commit was needs human review (`rescore`). Push a new commit to score it again.
+
+| Check | | Value |
+|---|---|---|
+| aligned | `██████████` | 0.97 |
+| scoped | `██████████` | 0.97 |
+| malicious (veto) | | pass |
+| hygiene (cap) | | pass |
+| breaks (cap) | | pass |
+| injection (cap) | | pass |
+
+Shadow mode: nothing is gated.
+
+<details><summary>Details</summary>
+
+- tested: 0.42
+- described: 0.97
+- risk: moderate (0.70)
+- reviewability: easy (0.75)
+- Model: typesafe/jev-1.13 · 4210 input tokens · $0.00018 · 2 calls · scored 0123456
+- Excluded (1): go.sum (+12 −3)
+
+</details>
+
+<!-- lgtm:sha=0123456789abcdef -->

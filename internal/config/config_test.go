@@ -84,6 +84,9 @@ func TestLoad_EmptyGivesDefaults(t *testing.T) {
 	if len(c.Sensitive) == 0 || c.MaxChangedLines != DefaultMaxChangedLines {
 		t.Errorf("sensitive = %v, max lines = %d", c.Sensitive, c.MaxChangedLines)
 	}
+	if c.ShowScores || c.Rescore != verdict.RescoreLowest {
+		t.Errorf("show_scores = %v, rescore = %q; scores must be hidden and re-scores floored by default", c.ShowScores, c.Rescore)
+	}
 	if p := c.Policy(); p.CapAt != 0.3 || p.VetoAt != DefaultVetoAt {
 		t.Errorf("cap_at = %v, veto_at = %v", p.CapAt, p.VetoAt)
 	}
@@ -121,6 +124,7 @@ func TestLoad_Rejects(t *testing.T) {
 		"approve at one":       {"approve_at = 1.0", "approve_at"},
 		"deny at zero":         {"deny_at = 0.0", "deny_at"},
 		"bad aggregate":        {`aggregate = "max"`, "aggregate"},
+		"bad rescore":          {`rescore = "highest"`, "rescore"},
 		"cap at zero":          {"cap_at = 0.0", "cap_at"},
 		"cap at one":           {"cap_at = 1.0", "cap_at"},
 		"cap above approve":    {"approve_at = 0.5\ndeny_at = 0.1\ncap_at = 0.6", "cap_at"},

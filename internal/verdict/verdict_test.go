@@ -131,3 +131,26 @@ func TestDecide_VetoedNamesTheLowest(t *testing.T) {
 		t.Errorf("a gate deny was reported as a veto: %q", r.Vetoed)
 	}
 }
+
+func TestFloor(t *testing.T) {
+	const a, n, d = Approve, NeedsHuman, Deny
+	// want[rule] lists the published verdict for each (earlier, new) pair.
+	pairs := [][2]Verdict{{a, a}, {a, n}, {a, d}, {n, a}, {n, n}, {n, d}, {d, a}, {d, n}, {d, d}}
+	want := map[Rescore][]Verdict{
+		RescoreLowest:    {a, n, d, n, n, d, d, d, d},
+		RescoreNoApprove: {a, n, d, n, n, d, n, n, d},
+		RescoreLatest:    {a, n, d, a, n, d, a, n, d},
+	}
+	for rule, ws := range want {
+		for i, p := range pairs {
+			earlier, got := p[0], p[1]
+			r := Floor(rule, earlier, Result{Verdict: got})
+			if r.Verdict != ws[i] {
+				t.Errorf("%s: earlier %s, new %s → %s, want %s", rule, earlier, got, r.Verdict, ws[i])
+			}
+			if lowered := r.Verdict != got; lowered != (r.Earlier != "") {
+				t.Errorf("%s: earlier %s, new %s: Earlier = %q, want it set only when lowered", rule, earlier, got, r.Earlier)
+			}
+		}
+	}
+}

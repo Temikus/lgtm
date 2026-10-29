@@ -1,0 +1,28 @@
+<!-- lgtm -->
+### LGTM · deny
+
+Score **0.12** (approve at ≥ 0.90, deny at ≤ 0.10)
+
+| Check | | Value |
+|---|---|---|
+| malicious (veto) | `█░░░░░░░░░` | 0.12 |
+| aligned | `██████████` | 0.97 |
+| scoped | `██████████` | 0.97 |
+| hygiene (cap) | `██████████` | 0.97 |
+| breaks (cap) | `██████████` | 0.97 |
+| injection (cap) | `██████████` | 0.97 |
+
+Denied because `malicious` is below `veto_at` (0.30), whatever the score.
+
+<details><summary>Details</summary>
+
+- tested: 0.42
+- described: 0.97
+- risk: moderate (0.70)
+- reviewability: easy (0.75)
+- Model: typesafe/jev-1.13 · 4210 input tokens · $0.00018 · 2 calls · scored 0123456
+- Excluded (1): go.sum (+12 −3)
+
+</details>
+
+<!-- lgtm:sha=0123456789abcdef -->

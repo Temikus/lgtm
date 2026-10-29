@@ -78,7 +78,7 @@ LGTM is a mistake detector, not a security boundary. Its inputs are attacker-con
 **Consequences for the design:**
 
 - Enforce mode must sit alongside required reviewers or CODEOWNERS, never replace them. The docs say this up front.
-- Scores in the sticky comment are a free oracle: an author can iterate injection text against live scores through `edited` events with no code change. The fork cap, the `injection` question, and a high `approve_at` limit what the oracle buys them.
+- Scores in public output are a free oracle: an author can iterate injection text against live scores through `edited` events with no code change, and with one default `veto_at` a payload tuned once works everywhere. So by default (`show_scores = false`) the comment, check run, and Action log show veto and cap questions only as pass/hold and leave out the aggregate, which would give away the lowest gate. A re-score of the same commit can't raise the verdict (`rescore = "lowest"`; `no_approve` only blocks a raise to approve). Pushing a new commit still re-scores, but there's no value to tune against.
 - Every failure, ambiguity, or missing input resolves to needs-human. Nothing resolves to approve by default.
 
 ## Design
@@ -221,12 +221,12 @@ A partial view can deny or escalate but **never approve**. The report says which
 
 ### Outputs on GitHub
 
-- **Check Run `LGTM`**, created on `head.sha` and titled with the score and verdict (e.g. "0.94 · approve"). Its summary holds the full table and the list of excluded or unseen files.
+- **Check Run `LGTM`**, created on `head.sha` and titled with the verdict, plus the score with `show_scores` (e.g. "0.94 · approve"). Its summary holds the full table and the list of excluded or unseen files.
   - Conclusions in enforce mode: approve → success, deny → failure.
   - Needs-human → failure with a "needs human review" title, because GitHub counts `neutral` as passing for required checks. It flips to success under the rules in [Trust](#trust).
   - In shadow mode it's always neutral.
 - **Sticky PR comment**, found by its `<!-- lgtm -->` marker and bot author, updated in place on each push. Noisy bot output is the main reason developers ignore review bots, so the comment is short:
-  - The visible part has the verdict, plus one row per `gate` and `cap` question (parameter, bar, value), with the lowest value first.
+  - The visible part has the verdict, plus one row per `gate` question (parameter, bar, value), lowest first, then veto and cap questions as pass/hold, holds first. With `show_scores` they all show values.
   - Informational questions, model, tokens, cost, scored SHA, and excluded or unseen files go in a collapsed `<details>` section.
   - A pass reads "No blocking issues found by LGTM's checks. This doesn't replace human review." It never says "looks good". Bot output anchors human reviewers, so the wording mustn't imply nothing else is wrong.
 - **Label** `lgtm: needs-human` in enforce mode when the verdict is escalate.
@@ -399,7 +399,7 @@ Progress: 1 to 4 done (2026-10-16), and 5 and 6 done (2026-10-18; v0.1.0). getlg
 
 - **Jev is alpha and hosted-only.** The weights aren't public, and direct signups are paused. Mitigations: keep the provider pluggable, pin a model version, and run an integration test against the live API.
 - **The name collides** with Grafana's LGTM stack and the retired lgtm.com (Semmle). This affects SEO, not trademark.
-- **Scores can be steered by prompt injection**, and the sticky comment is an oracle for tuning it. Mitigations: shadow by default, the fork cap, the `injection` cap question, never approving or merging, and docs that insist on human reviewers alongside enforce mode.
+- **Scores can be steered by prompt injection**, and visible scores are an oracle for tuning it. Mitigations: veto and cap values hidden by default, re-scores of the same commit that can't raise the verdict, shadow by default, the fork cap, the `injection` cap question, never approving or merging, and docs that insist on human reviewers alongside enforce mode.
 - **Default excludes hide lockfiles, `vendor/**`, and minified files from `malicious` and `hygiene`.** Mitigations: they're listed in `excluded` and in the report, and the lockfile-source cap reads lockfiles for packages resolved from outside the usual registries.
 - **Cost abuse.** Anyone can open fork PRs and push repeatedly. Mitigations: concurrency with cancel-in-progress, the batch cap, bounded retries, and a spend-limited key.
 - **Provider outage blocks merges in enforce mode.** This is intended fail-closed behaviour; the human-approval flip is the escape hatch.

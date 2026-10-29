@@ -109,8 +109,12 @@ type Config struct {
 	MaxChangedLines   int
 	BorderlineMargin  float64
 	AllowUncalibrated bool
-	Calibration       *Calibration
-	Rubric            []rubric.Question
+	// ShowScores puts veto and cap values and the aggregate in the comment,
+	// check run, and Action log. Off, they'd be an oracle for tuning a PR.
+	ShowScores  bool
+	Rescore     verdict.Rescore
+	Calibration *Calibration
+	Rubric      []rubric.Question
 }
 
 // file is the TOML shape. Pointers tell "unset" from zero.
@@ -131,6 +135,8 @@ type file struct {
 	MaxChangedLines    *int                       `toml:"max_changed_lines"`
 	BorderlineMargin   *float64                   `toml:"borderline_margin"`
 	AllowUncalibrated  *bool                      `toml:"allow_uncalibrated"`
+	ShowScores         *bool                      `toml:"show_scores"`
+	Rescore            *string                    `toml:"rescore"`
 	Calibration        *Calibration               `toml:"calibration"`
 	Questions          map[string]rubric.Override `toml:"questions"`
 }
@@ -175,6 +181,8 @@ func Load(data []byte) (*Config, error) {
 		MaxChangedLines:    deref(f.MaxChangedLines, DefaultMaxChangedLines),
 		BorderlineMargin:   deref(f.BorderlineMargin, 0.05),
 		AllowUncalibrated:  deref(f.AllowUncalibrated, false),
+		ShowScores:         deref(f.ShowScores, false),
+		Rescore:            verdict.Rescore(deref(f.Rescore, string(verdict.RescoreLowest))),
 		Calibration:        f.Calibration,
 	}
 	if c.Sensitive == nil {
@@ -261,11 +269,8 @@ func (c *Config) validate() error {
 	if _, err := jev.BaseURL(c.Provider, ""); err != nil {
 		return fmt.Errorf("provider: %w", err)
 	}
-	if c.Mode != Shadow && c.Mode != Enforce {
-		return fmt.Errorf("mode must be shadow or enforce, got %q", c.Mode)
-	}
-	if c.Aggregate != verdict.Min && c.Aggregate != verdict.WeightedMean {
-		return fmt.Errorf("aggregate must be min or weighted_mean, got %q", c.Aggregate)
+	if err := c.validateEnums(); err != nil {
+		return err
 	}
 	if err := validThresholds(c.ApproveAt, c.DenyAt); err != nil {
 		return err
@@ -292,6 +297,20 @@ func (c *Config) validate() error {
 		return err
 	}
 	return c.validateRubric()
+}
+
+func (c *Config) validateEnums() error {
+	if c.Mode != Shadow && c.Mode != Enforce {
+		return fmt.Errorf("mode must be shadow or enforce, got %q", c.Mode)
+	}
+	if c.Aggregate != verdict.Min && c.Aggregate != verdict.WeightedMean {
+		return fmt.Errorf("aggregate must be min or weighted_mean, got %q", c.Aggregate)
+	}
+	switch c.Rescore {
+	case verdict.RescoreLowest, verdict.RescoreNoApprove, verdict.RescoreLatest:
+		return nil
+	}
+	return fmt.Errorf("rescore must be lowest, no_approve, or latest, got %q", c.Rescore)
 }
 
 // validateCuts checks cap_at and veto_at against the approve_at in effect.

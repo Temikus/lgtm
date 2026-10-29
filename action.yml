@@ -20,7 +20,7 @@ outputs:
   verdict:
     description: approve, deny, or needs-human
   score:
-    description: Aggregate score from 0 to 1
+    description: Aggregate score from 0 to 1; empty unless show_scores is on
 
 runs:
   using: docker

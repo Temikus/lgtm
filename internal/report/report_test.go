@@ -23,7 +23,7 @@ func result(mode config.Mode, v verdict.Result) *engine.Result {
 		PR:        prstate.PR{Owner: "o", Repo: "r", Number: 7, HeadSHA: "0123456789abcdef"},
 		Mode:      mode,
 		Model:     "typesafe/jev-1.13",
-		ApproveAt: 0.9, DenyAt: 0.1, VetoAt: 0.3,
+		ApproveAt: 0.9, DenyAt: 0.1, VetoAt: 0.3, CapAt: 0.3,
 		Verdict: v,
 		Usage:   jev.Usage{InputTokens: 4210}, CostUSD: 0.00018, Calls: 2,
 		Excluded: []prstate.File{{Path: "go.sum", Additions: 12, Deletions: 3}},
@@ -82,6 +82,12 @@ func TestComment_Golden(t *testing.T) {
 		"enforce_capped":     result(config.Enforce, verdict.Result{Verdict: verdict.NeedsHuman, Raw: verdict.Approve, Aggregate: 0.97, Caps: []verdict.CapKind{verdict.PartialView, verdict.UntrustedAuthor}}),
 		"enforce_failure":    result(config.Enforce, verdict.Result{Verdict: verdict.NeedsHuman, Raw: verdict.NeedsHuman, Failure: errors.New("decision API: HTTP 529: overloaded")}),
 		"enforce_vetoed":     vetoed(),
+		"enforce_vetoed_shown": func() *engine.Result {
+			r := vetoed()
+			r.ShowScores = true
+			return r
+		}(),
+		"shadow_rescored": result(config.Shadow, verdict.Result{Verdict: verdict.NeedsHuman, Raw: verdict.Approve, Aggregate: 0.97, Earlier: verdict.NeedsHuman}),
 	}
 	for name, r := range tests {
 		t.Run(name, func(t *testing.T) { golden(t, name, Comment(r)) })
@@ -146,12 +152,43 @@ func TestTitleAndConclusion(t *testing.T) {
 	}
 	for _, tt := range tests {
 		r := result(tt.mode, tt.v)
+		r.ShowScores = true
 		if got := Title(r); got != tt.title {
 			t.Errorf("title = %q, want %q", got, tt.title)
 		}
 		if got := Conclusion(r); got != tt.conclusion {
 			t.Errorf("%s %s conclusion = %q, want %q", tt.mode, tt.v.Verdict, got, tt.conclusion)
 		}
+	}
+}
+
+// With hidden scores, no veto or cap value, and no aggregate, reaches public
+// output: they'd let an author tune a PR until it clears the bar.
+func TestHiddenScores(t *testing.T) {
+	r := result(config.Enforce, verdict.Result{Verdict: verdict.Deny, Raw: verdict.NeedsHuman, Aggregate: 0.27, Vetoed: "malicious", Caps: []verdict.CapKind{verdict.CapQuestion}})
+	secret := map[string]float64{"malicious": 0.27, "injection": 0.21, "hygiene": 0.83, "breaks": 0.66}
+	for i, q := range r.Questions {
+		if v, ok := secret[q.ID]; ok {
+			r.Questions[i].Value = v
+		}
+	}
+	r.Questions[0].Value = 0.58 // aligned stays visible
+	for name, out := range map[string]string{"comment": Comment(r), "summary": Summary(r), "title": Title(r), "text": Text(r)} {
+		for _, leak := range []string{"0.27", "0.21", "0.83", "0.66"} {
+			if strings.Contains(out, leak) {
+				t.Errorf("%s leaks %s:\n%s", name, leak, out)
+			}
+		}
+	}
+	c := Comment(r)
+	for _, want := range []string{"| malicious (veto) | | deny |", "| injection (cap) | | hold |", "| hygiene (cap) | | pass |", "| breaks (cap) | | hold |", "0.58"} {
+		if !strings.Contains(c, want) {
+			t.Errorf("comment missing %q:\n%s", want, c)
+		}
+	}
+	// Hidden rows come after the gates, holds first, whatever their values.
+	if i, j, k := strings.Index(c, "scoped"), strings.Index(c, "malicious"), strings.Index(c, "hygiene"); i > j || j > k {
+		t.Errorf("row order leaks values:\n%s", c)
 	}
 }
 

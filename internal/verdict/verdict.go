@@ -101,6 +101,34 @@ type Result struct {
 	Caps      []CapKind // every cap whose condition held, in rule order
 	Vetoed    string    // the veto question that forced deny, if any
 	Failure   error
+	// Earlier is set when an earlier score of the same commit lowered
+	// Verdict (see Floor).
+	Earlier Verdict
+}
+
+// Rescore sets how far a re-score of an already scored commit, such as
+// after a description edit, may move the verdict.
+type Rescore string
+
+const (
+	RescoreLowest    Rescore = "lowest"     // keep the lower of the two verdicts
+	RescoreNoApprove Rescore = "no_approve" // approve only if the earlier score approved
+	RescoreLatest    Rescore = "latest"     // ignore the earlier score
+)
+
+var rank = map[Verdict]int{Deny: 0, NeedsHuman: 1, Approve: 2}
+
+// Floor applies rule to r, given the verdict an earlier score of the same
+// commit published. Without it, every edit is a free retry against model
+// noise and a chance to tune injection text.
+func Floor(rule Rescore, earlier Verdict, r Result) Result {
+	switch {
+	case rule == RescoreLowest && rank[earlier] < rank[r.Verdict]:
+		r.Verdict, r.Earlier = earlier, earlier
+	case rule == RescoreNoApprove && r.Verdict == Approve && earlier != Approve:
+		r.Verdict, r.Earlier = NeedsHuman, earlier
+	}
+	return r
 }
 
 // Decide applies the aggregate and thresholds, then a veto, then caps in

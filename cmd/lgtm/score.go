@@ -60,6 +60,8 @@ func newScoreCmd() *cobra.Command {
 					return err
 				}
 			}
+			// Only the comment is public; the terminal gets every value.
+			r.ShowScores = true
 			if asJSON {
 				b, err := report.JSON(r)
 				if err != nil {

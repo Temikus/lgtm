@@ -98,6 +98,10 @@ func (env Env) score(ctx context.Context, pr prstate.PR) (int, error) {
 		d = failing{err}
 	}
 	r := engine.Score(ctx, env.GH, pr, engine.Options{Config: cfg, Decider: d})
+	if err := env.floor(ctx, cfg, r); err != nil {
+		// Publishing nothing leaves a required LGTM check missing, not passed.
+		return 1, err
+	}
 	_, _ = fmt.Fprint(env.Log, report.Text(r))
 
 	pub := ghout.Publisher{GH: env.GH, PR: pr, CommentAuthor: env.CommentAuthor}
@@ -119,13 +123,34 @@ func (env Env) score(ctx context.Context, pr prstate.PR) (int, error) {
 	}
 	if env.SetOutput != nil {
 		env.SetOutput("verdict", string(r.Verdict.Verdict))
-		env.SetOutput("score", fmt.Sprintf("%.4f", r.Verdict.Aggregate))
+		if cfg.ShowScores {
+			env.SetOutput("score", fmt.Sprintf("%.4f", r.Verdict.Aggregate))
+		}
 	}
 	if pub.ApprovedBy != "" {
 		_, _ = fmt.Fprintf(env.Log, "lgtm: %s already approved %s\n", pub.ApprovedBy, pr.HeadSHA)
 		return 0, nil
 	}
 	return exitCode(cfg.Mode, r.Verdict.Verdict), nil
+}
+
+// floor applies cfg.Rescore against LGTM's earlier check run on the same
+// commit, if any.
+func (env Env) floor(ctx context.Context, cfg *config.Config, r *engine.Result) error {
+	if cfg.Rescore == verdict.RescoreLatest {
+		return nil
+	}
+	prev, err := ghout.FindCheck(ctx, env.GH, r.PR.Owner, r.PR.Repo, r.PR.HeadSHA)
+	if err != nil || prev == nil {
+		return err
+	}
+	st, _ := ghout.DecodeState(prev.GetExternalID())
+	earlier := st.Verdict
+	if st.Human {
+		earlier = verdict.NeedsHuman // LGTM itself didn't approve
+	}
+	r.Verdict = verdict.Floor(cfg.Rescore, earlier, r.Verdict)
+	return nil
 }
 
 // configFailure reports a broken base-branch config on the check run. The

@@ -6,6 +6,7 @@ package report
 import (
 	"cmp"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"github.com/Temikus/lgtm/internal/config"
 	"github.com/Temikus/lgtm/internal/engine"
 	"github.com/Temikus/lgtm/internal/jev"
+	"github.com/Temikus/lgtm/internal/prstate"
 	"github.com/Temikus/lgtm/internal/rubric"
 	"github.com/Temikus/lgtm/internal/verdict"
 )
@@ -55,6 +57,9 @@ func Headline(v verdict.Verdict) string {
 // Title is the check-run title, e.g. "0.94 · approve".
 func Title(r *engine.Result) string {
 	v := r.Verdict
+	if errors.Is(v.Failure, prstate.ErrNoFiles) {
+		return "needs human review (nothing to score)"
+	}
 	if v.Failure != nil {
 		return "needs human review (scoring failed)"
 	}
@@ -103,9 +108,12 @@ func body(r *engine.Result, expanded bool) string {
 	if v.Earlier != "" {
 		sections = append(sections, fmt.Sprintf("Kept at %s because an earlier score of this commit was %s (`rescore`). Push a new commit to score it again.", Headline(v.Verdict), Headline(v.Earlier)))
 	}
-	if v.Failure != nil {
+	switch {
+	case errors.Is(v.Failure, prstate.ErrNoFiles):
+		sections = append(sections, "Nothing to score: every changed file is excluded, so a human needs to review this.")
+	case v.Failure != nil:
 		sections = append(sections, "Scoring failed, so a human needs to review this: "+Escape(capLen(v.Failure.Error(), maxErrorLen)))
-	} else {
+	default:
 		if r.ShowScores {
 			sections = append(sections, fmt.Sprintf("Score **%.2f** (approve at ≥ %.2f, deny at ≤ %.2f)", v.Aggregate, r.ApproveAt, r.DenyAt))
 		}
@@ -229,8 +237,8 @@ func caps(r *engine.Result) string {
 		return ""
 	}
 	head := "Held at needs-human because:"
-	if r.Verdict.Verdict == verdict.Deny {
-		// Caps only ever hold approve; on a deny they're context.
+	if r.Verdict.Verdict == verdict.Deny || r.Verdict.Failure != nil {
+		// Caps only ever hold approve; on a deny or a failure they're context.
 		head = "Would also hold approve because:"
 	}
 	lines := []string{head}
@@ -445,13 +453,15 @@ func textVerdict(b *strings.Builder, r *engine.Result) {
 	if e := r.Verdict.Earlier; e != "" {
 		fmt.Fprintf(b, "kept:    an earlier score of this commit was %s (rescore)\n", e)
 	}
-	if r.Verdict.Failure != nil {
+	if errors.Is(r.Verdict.Failure, prstate.ErrNoFiles) {
+		b.WriteString("nothing to score: every changed file is excluded\n")
+	} else if r.Verdict.Failure != nil {
 		fmt.Fprintf(b, "failure: %s\n", clean(r.Verdict.Failure.Error()))
 	} else if r.ShowScores {
 		fmt.Fprintf(b, "score:   %.2f (approve >= %.2f, deny <= %.2f)\n", r.Verdict.Aggregate, r.ApproveAt, r.DenyAt)
 	}
 	label := "capped:  "
-	if r.Verdict.Verdict == verdict.Deny {
+	if r.Verdict.Verdict == verdict.Deny || r.Verdict.Failure != nil {
 		label = "also:    "
 	}
 	for _, c := range r.Verdict.Caps {

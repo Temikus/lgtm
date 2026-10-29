@@ -3,6 +3,7 @@ package report
 import (
 	"errors"
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -87,6 +88,11 @@ func TestComment_Golden(t *testing.T) {
 			r.ShowScores = true
 			return r
 		}(),
+		"shadow_nothing_to_score": func() *engine.Result {
+			r := result(config.Shadow, verdict.Result{Verdict: verdict.NeedsHuman, Raw: verdict.NeedsHuman, Failure: prstate.ErrNoFiles, Caps: []verdict.CapKind{verdict.LockfileSource}})
+			r.LockSources = []prstate.LockSource{{Path: "package-lock.json", Host: "evil.example"}}
+			return r
+		}(),
 		"shadow_rescored": result(config.Shadow, verdict.Result{Verdict: verdict.NeedsHuman, Raw: verdict.Approve, Aggregate: 0.97, Earlier: verdict.NeedsHuman}),
 	}
 	for name, r := range tests {
@@ -149,6 +155,7 @@ func TestTitleAndConclusion(t *testing.T) {
 		{config.Enforce, verdict.Result{Verdict: verdict.Deny, Aggregate: 0.05}, "0.05 · deny", "failure"},
 		{config.Enforce, verdict.Result{Verdict: verdict.NeedsHuman, Aggregate: 0.5}, "0.50 · needs human review", "failure"},
 		{config.Enforce, verdict.Result{Verdict: verdict.NeedsHuman, Failure: errors.New("x")}, "needs human review (scoring failed)", "failure"},
+		{config.Enforce, verdict.Result{Verdict: verdict.NeedsHuman, Failure: fmt.Errorf("snapshot: %w", prstate.ErrNoFiles)}, "needs human review (nothing to score)", "failure"},
 	}
 	for _, tt := range tests {
 		r := result(tt.mode, tt.v)

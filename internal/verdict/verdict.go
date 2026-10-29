@@ -137,7 +137,7 @@ func Floor(rule Rescore, earlier Verdict, r Result) Result {
 // cap turns approve into needs-human and leaves deny alone.
 func Decide(p Policy, in Input) Result {
 	if in.Failure != nil {
-		return Result{Verdict: NeedsHuman, Raw: NeedsHuman, Failure: in.Failure}
+		return Result{Verdict: NeedsHuman, Raw: NeedsHuman, Failure: in.Failure, Caps: caps(p, in)}
 	}
 	agg, err := aggregate(p.Aggregate, in.Values)
 	if err != nil {

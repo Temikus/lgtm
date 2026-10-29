@@ -94,6 +94,12 @@ func Score(ctx context.Context, gh *github.Client, pr prstate.PR, opts Options) 
 	if err == nil {
 		snap, err = raw.Snapshot(opts.Config.Exclude)
 	}
+	if errors.Is(err, prstate.ErrNoFiles) {
+		r, in := check(ctx, gh, snap, opts)
+		in.Failure = err
+		r.Verdict = verdict.Decide(opts.Config.Policy(), in)
+		return r
+	}
 	if err != nil {
 		r := newResult(pr, opts.Config)
 		if snap != nil {
@@ -109,29 +115,8 @@ func Score(ctx context.Context, gh *github.Client, pr prstate.PR, opts Options) 
 // score edited copies of one PR.
 func ScoreSnapshot(ctx context.Context, gh *github.Client, snap *prstate.Snapshot, opts Options) *Result {
 	cfg := opts.Config
-	r := newResult(snap.PR, cfg)
-	r.Excluded, r.Unseen, r.Partial = snap.Excluded, slices.Clone(snap.Unseen), slices.Clone(snap.Partial)
-	in := verdict.Input{}
+	r, in := check(ctx, gh, snap, opts)
 	defer func() { r.Verdict = verdict.Decide(cfg.Policy(), in) }()
-
-	r.Untrusted, r.TrustErr = untrusted(ctx, gh, snap.PR, opts)
-	in.Untrusted = r.Untrusted
-	r.LockSources = slices.DeleteFunc(slices.Clone(snap.LockSources), func(s prstate.LockSource) bool {
-		return slices.ContainsFunc(cfg.LockfileRegistries, func(h string) bool {
-			return strings.EqualFold(strings.TrimSuffix(h, "."), s.Host)
-		})
-	})
-	in.LockSource = len(r.LockSources) > 0
-	r.AutoRuns = slices.Clone(snap.AutoRuns)
-	in.AutoRun = len(r.AutoRuns) > 0
-	r.CIFailed, r.CIErr = failedChecks(ctx, gh, snap.PR, opts)
-	in.CIFailed = len(r.CIFailed) > 0
-	r.Sensitive = prstate.Matching(cfg.Sensitive, snap.Files, snap.Excluded)
-	in.Sensitive = len(r.Sensitive) > 0
-	for _, f := range snap.Files {
-		r.ChangedLines += f.Additions + f.Deletions
-	}
-	in.TooLarge = cfg.MaxChangedLines > 0 && r.ChangedLines > cfg.MaxChangedLines
 
 	lim := opts.Limits
 	if lim == (prstate.Limits{}) {
@@ -158,6 +143,34 @@ func ScoreSnapshot(ctx context.Context, gh *github.Client, snap *prstate.Snapsho
 	in.Values = r.Values()
 	in.Consistency = func() (bool, error) { return r.consistent(ctx, opts.Decider, plan.Calls, answers) }
 	return r
+}
+
+// check runs the checks that don't need the model.
+func check(ctx context.Context, gh *github.Client, snap *prstate.Snapshot, opts Options) (*Result, verdict.Input) {
+	cfg := opts.Config
+	r := newResult(snap.PR, cfg)
+	r.Excluded, r.Unseen, r.Partial = snap.Excluded, slices.Clone(snap.Unseen), slices.Clone(snap.Partial)
+	in := verdict.Input{Partial: len(r.Partial) > 0}
+
+	r.Untrusted, r.TrustErr = untrusted(ctx, gh, snap.PR, opts)
+	in.Untrusted = r.Untrusted
+	r.LockSources = slices.DeleteFunc(slices.Clone(snap.LockSources), func(s prstate.LockSource) bool {
+		return slices.ContainsFunc(cfg.LockfileRegistries, func(h string) bool {
+			return strings.EqualFold(strings.TrimSuffix(h, "."), s.Host)
+		})
+	})
+	in.LockSource = len(r.LockSources) > 0
+	r.AutoRuns = slices.Clone(snap.AutoRuns)
+	in.AutoRun = len(r.AutoRuns) > 0
+	r.CIFailed, r.CIErr = failedChecks(ctx, gh, snap.PR, opts)
+	in.CIFailed = len(r.CIFailed) > 0
+	r.Sensitive = prstate.Matching(cfg.Sensitive, snap.Files, snap.Excluded)
+	in.Sensitive = len(r.Sensitive) > 0
+	for _, f := range snap.Files {
+		r.ChangedLines += f.Additions + f.Deletions
+	}
+	in.TooLarge = cfg.MaxChangedLines > 0 && r.ChangedLines > cfg.MaxChangedLines
+	return r, in
 }
 
 func newResult(pr prstate.PR, cfg *config.Config) *Result {

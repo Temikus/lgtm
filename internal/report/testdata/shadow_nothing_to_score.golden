@@ -1,0 +1,23 @@
+<!-- lgtm -->
+### LGTM (shadow) · would have: needs human review
+
+Nothing to score: every changed file is excluded, so a human needs to review this.
+
+Would also hold approve because:
+- a lockfile pulls a package from outside the usual registries (`lockfile_registries` adds hosts)
+
+Shadow mode: nothing is gated.
+
+<details><summary>Details</summary>
+
+- tested: 0.42
+- described: 0.97
+- risk: moderate (0.70)
+- reviewability: easy (0.75)
+- Model: typesafe/jev-1.13 · 4210 input tokens · $0.00018 · 2 calls · scored 0123456
+- Lockfile source: package-lock.json resolves from evil.example
+- Excluded (1): go.sum (+12 −3)
+
+</details>
+
+<!-- lgtm:sha=0123456789abcdef -->

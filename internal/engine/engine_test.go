@@ -154,6 +154,26 @@ func TestScore_FetchErrorIsNeedsHuman(t *testing.T) {
 	}
 }
 
+// A PR that only touches excluded files, such as a lockfile bump, has
+// nothing for the model, but the deterministic checks still run.
+func TestScore_NothingToScoreStillRunsChecks(t *testing.T) {
+	gh := ghtest.New(t)
+	gh.Mux.HandleFunc("GET /repos/o/r/compare/b...h", ghtest.Reply(200, map[string]any{"files": []any{
+		map[string]any{"filename": "package-lock.json", "status": "modified", "additions": 1, "changes": 1,
+			"patch": `+      "resolved": "https://evil.example/x.tgz",`},
+	}}))
+	pr := prstate.PR{Owner: "o", Repo: "r", Number: 1, BaseSHA: "b", HeadSHA: "h", ChangedFiles: 1}
+	d := &fakeDecider{}
+
+	r := Score(context.Background(), gh.Client, pr, Options{Config: load(t, ""), Decider: d})
+	if r.Verdict.Verdict != verdict.NeedsHuman || !errors.Is(r.Verdict.Failure, prstate.ErrNoFiles) || len(d.reqs) != 0 {
+		t.Errorf("verdict = %+v, model calls = %d", r.Verdict, len(d.reqs))
+	}
+	if len(r.LockSources) != 1 || !slices.Contains(r.Verdict.Caps, verdict.LockfileSource) {
+		t.Errorf("lock sources = %v, caps = %v; the lockfile check must still run", r.LockSources, r.Verdict.Caps)
+	}
+}
+
 // A position-biased model flips its choice when the options are reversed,
 // so a borderline approve must be capped.
 func TestScore_BorderlineConsistencyCap(t *testing.T) {

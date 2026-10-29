@@ -15,6 +15,10 @@ mode = "shadow"
 approve_at = 0.9
 deny_at = 0.1
 
+# Show every value while we debug the rubric; the default hides veto and
+# cap values and the score.
+show_scores = true
+
 # Fork PRs from authors without write access never get approve.
 trust_forks = false
 

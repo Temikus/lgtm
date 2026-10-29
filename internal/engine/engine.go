@@ -57,11 +57,15 @@ type Result struct {
 	ApproveAt float64
 	DenyAt    float64
 	VetoAt    float64
-	Verdict   verdict.Result
-	Questions []QuestionResult // rubric order
-	Excluded  []prstate.File
-	Unseen    []prstate.Unseen
-	Partial   []string
+	CapAt     float64 // global cap_at; a question's own CapAt wins
+	// ShowScores reports veto and cap values and the aggregate; off, the
+	// report gives only pass or hold for them.
+	ShowScores bool
+	Verdict    verdict.Result
+	Questions  []QuestionResult // rubric order
+	Excluded   []prstate.File
+	Unseen     []prstate.Unseen
+	Partial    []string
 	// LockSources are lockfile package sources outside the allowed
 	// registries; any of them holds approve.
 	LockSources []prstate.LockSource
@@ -158,7 +162,7 @@ func ScoreSnapshot(ctx context.Context, gh *github.Client, snap *prstate.Snapsho
 
 func newResult(pr prstate.PR, cfg *config.Config) *Result {
 	approve, deny := cfg.Thresholds()
-	r := &Result{PR: pr, Mode: cfg.Mode, Model: cfg.Model, ApproveAt: approve, DenyAt: deny, VetoAt: cfg.VetoAt}
+	r := &Result{PR: pr, Mode: cfg.Mode, Model: cfg.Model, ApproveAt: approve, DenyAt: deny, VetoAt: cfg.VetoAt, CapAt: cfg.CapAt, ShowScores: cfg.ShowScores}
 	for _, q := range cfg.Rubric {
 		r.Questions = append(r.Questions, QuestionResult{Question: q, Err: errors.New("not asked")})
 	}

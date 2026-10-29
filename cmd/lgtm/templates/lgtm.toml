@@ -22,6 +22,16 @@ deny_at = 0.1
 # A veto question (malicious) below this denies, whatever the score.
 # veto_at = 0.4
 
+# Public output (comment, check run, Action log) shows veto and cap
+# questions as pass/hold and leaves out the score, so a PR author can't
+# tune a PR against them. true shows every value, for debugging.
+# show_scores = false
+
+# A re-score of the same commit, such as after a description edit, keeps
+# the lower of the two verdicts. no_approve only stops it from approving;
+# latest ignores the earlier score.
+# rescore = "lowest"
+
 # A lockfile change that resolves a package from outside npm, PyPI,
 # crates.io, RubyGems, or pub.dev holds approve. Add private registries:
 # lockfile_registries = ["npm.example.com"]

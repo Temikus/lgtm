@@ -45,13 +45,15 @@ func (f *fakeDecider) Decide(_ context.Context, req jev.Request) (*jev.Response,
 // world is a fake repo o/r with PR 7 (base000...head111).
 type world struct {
 	*ghtest.Server
-	mu      sync.Mutex
-	writes  []string
-	bodies  map[string]map[string]any
-	cfgRef  string
-	checks  []any
-	reviews []any
-	perms   map[string]string
+	mu     sync.Mutex
+	writes []string
+	bodies map[string]map[string]any
+	cfgRef string
+	checks []any
+	// checksDown makes check-run reads fail.
+	checksDown bool
+	reviews    []any
+	perms      map[string]string
 }
 
 func newWorld(t *testing.T, cfgTOML string) *world {
@@ -73,6 +75,10 @@ func newWorld(t *testing.T, cfgTOML string) *world {
 	}}))
 	m.HandleFunc("GET /repos/o/r/issues/7/comments", ghtest.Reply(200, []any{}))
 	m.HandleFunc("GET /repos/o/r/commits/head111/check-runs", func(rw http.ResponseWriter, _ *http.Request) {
+		if w.checksDown {
+			ghtest.JSON(rw, 500, map[string]any{"message": "boom"})
+			return
+		}
 		ghtest.JSON(rw, 200, map[string]any{"check_runs": w.checks})
 	})
 	m.HandleFunc("GET /repos/o/r/pulls/7/reviews", func(rw http.ResponseWriter, _ *http.Request) { ghtest.JSON(rw, 200, w.reviews) })
@@ -347,5 +353,51 @@ func TestRun_ApprovalDoesNotOverrideDeny(t *testing.T) {
 	}
 	if w.bodies["POST /repos/o/r/check-runs"]["conclusion"] != "failure" {
 		t.Error("a deny stays a deny after an approval")
+	}
+}
+
+func TestRun_RescoreFloor(t *testing.T) {
+	check := func(verdict, extra string) map[string]any {
+		c := needsHumanCheck()
+		c["external_id"] = "lgtm/v1 mode=enforce verdict=" + verdict + extra
+		return c
+	}
+	tests := []struct {
+		name    string
+		cfg     string
+		earlier map[string]any
+		want    string
+	}{
+		{"first score", "", nil, "approve"},
+		{"earlier approve", "", check("approve", ""), "approve"},
+		{"earlier needs-human", "", check("needs-human", ""), "needs-human"},
+		{"earlier deny", "", check("deny", ""), "deny"},
+		{"earlier human approval", "", check("approve", " human=1"), "needs-human"},
+		{"no_approve after deny", "rescore = \"no_approve\"\n", check("deny", ""), "needs-human"},
+		{"latest after deny", "rescore = \"latest\"\n", check("deny", ""), "approve"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := newWorld(t, enforce+tt.cfg)
+			if tt.earlier != nil {
+				w.checks = []any{tt.earlier}
+			}
+			ev := event(t, map[string]any{"action": "edited", "pull_request": prJSON(false)})
+			if _, err := Run(context.Background(), env(w, "pull_request_target", ev, &fakeDecider{noul: 0.99})); err != nil {
+				t.Fatal(err)
+			}
+			if got := fmt.Sprint(w.bodies["POST /repos/o/r/check-runs"]["external_id"]); !strings.HasSuffix(got, "verdict="+tt.want) {
+				t.Errorf("external_id = %q, want verdict=%s", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRun_RescoreLookupFailurePublishesNothing(t *testing.T) {
+	w := newWorld(t, enforce)
+	w.checksDown = true
+	ev := event(t, map[string]any{"action": "edited", "pull_request": prJSON(false)})
+	if code, err := Run(context.Background(), env(w, "pull_request_target", ev, &fakeDecider{noul: 0.99})); err == nil || code != 1 || len(w.writes) != 0 {
+		t.Errorf("code = %d err = %v writes = %v", code, err, w.writes)
 	}
 }

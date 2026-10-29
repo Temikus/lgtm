@@ -129,9 +129,14 @@ func (p Publisher) Label(ctx context.Context, needsHuman bool) error {
 type State struct {
 	Mode    config.Mode
 	Verdict verdict.Verdict
+	// Human means a human approval turned LGTM's needs-human into approve.
+	Human bool
 }
 
-const statePrefix = "lgtm/v1"
+const (
+	statePrefix = "lgtm/v1"
+	humanSuffix = " human=1"
+)
 
 // EncodeState formats a State for external_id.
 func EncodeState(s State) string {
@@ -146,6 +151,7 @@ func DecodeState(s string) (State, bool) {
 		return st, false
 	}
 	st.Mode, st.Verdict = config.Mode(mode), verdict.Verdict(v)
+	st.Human = strings.HasSuffix(s, humanSuffix)
 	switch st.Verdict {
 	case verdict.Approve, verdict.Deny, verdict.NeedsHuman:
 	default:
@@ -199,7 +205,7 @@ func MarkApproved(ctx context.Context, gh *github.Client, owner, repo string, ru
 // needs-human verdict that a qualifying human approved.
 func approvedOutput(st State, by, summary string) (ext, title, sum string) {
 	st.Verdict = verdict.Approve
-	return EncodeState(st) + " human=1",
+	return EncodeState(st) + humanSuffix,
 		fmt.Sprintf("approved by %s · LGTM had asked for human review", by),
 		fmt.Sprintf("A human with write access (%s) approved this commit, so the check passes.\n\n%s", report.Escape(by), summary)
 }

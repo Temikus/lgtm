@@ -4,6 +4,7 @@
 package report
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"slices"
@@ -64,6 +65,9 @@ func Title(r *engine.Result) string {
 	if r.Mode == config.Shadow {
 		word = "would have: " + word
 	}
+	if !r.ShowScores {
+		return word
+	}
 	return fmt.Sprintf("%.2f · %s", v.Aggregate, word)
 }
 
@@ -96,12 +100,16 @@ func body(r *engine.Result, expanded bool) string {
 	} else {
 		sections = append(sections, "### LGTM · "+Headline(v.Verdict))
 	}
+	if v.Earlier != "" {
+		sections = append(sections, fmt.Sprintf("Kept at %s because an earlier score of this commit was %s (`rescore`). Push a new commit to score it again.", Headline(v.Verdict), Headline(v.Earlier)))
+	}
 	if v.Failure != nil {
 		sections = append(sections, "Scoring failed, so a human needs to review this: "+Escape(capLen(v.Failure.Error(), maxErrorLen)))
 	} else {
-		sections = append(sections,
-			fmt.Sprintf("Score **%.2f** (approve at ≥ %.2f, deny at ≤ %.2f)", v.Aggregate, r.ApproveAt, r.DenyAt),
-			table(blocking(r)))
+		if r.ShowScores {
+			sections = append(sections, fmt.Sprintf("Score **%.2f** (approve at ≥ %.2f, deny at ≤ %.2f)", v.Aggregate, r.ApproveAt, r.DenyAt))
+		}
+		sections = append(sections, table(r, blocking(r)))
 	}
 	if id := v.Vetoed; id != "" && v.Failure == nil {
 		sections = append(sections, fmt.Sprintf("Denied because `%s` is below `veto_at` (%.2f), whatever the score.", Escape(id), r.VetoAt))
@@ -123,7 +131,9 @@ func body(r *engine.Result, expanded bool) string {
 	return strings.Join(sections, "\n\n") + "\n"
 }
 
-// blocking returns gate, veto, and cap questions, lowest value first.
+// blocking returns gate, veto, and cap questions, lowest value first. With
+// hidden scores, hidden rows follow the gates, holds first, so their order
+// doesn't leak their values.
 func blocking(r *engine.Result) []engine.QuestionResult {
 	var out []engine.QuestionResult
 	for _, q := range r.Questions {
@@ -131,11 +141,20 @@ func blocking(r *engine.Result) []engine.QuestionResult {
 			out = append(out, q)
 		}
 	}
-	slices.SortStableFunc(out, func(a, b engine.QuestionResult) int {
+	key := func(q engine.QuestionResult) float64 {
 		switch {
-		case a.Value < b.Value:
+		case !hidden(r, q):
+			return q.Value
+		case status(r, q) == "pass":
+			return 3
+		}
+		return 2
+	}
+	slices.SortStableFunc(out, func(a, b engine.QuestionResult) int {
+		switch ka, kb := key(a), key(b); {
+		case ka < kb:
 			return -1
-		case a.Value > b.Value:
+		case ka > kb:
 			return 1
 		}
 		return 0
@@ -143,7 +162,25 @@ func blocking(r *engine.Result) []engine.QuestionResult {
 	return out
 }
 
-func table(qs []engine.QuestionResult) string {
+// hidden reports whether q's value stays out of public output.
+func hidden(r *engine.Result, q engine.QuestionResult) bool {
+	return !r.ShowScores && (q.Role == rubric.Veto || q.Role == rubric.Cap)
+}
+
+// status is a veto or cap question's outcome without its value.
+func status(r *engine.Result, q engine.QuestionResult) string {
+	switch {
+	case q.Err != nil:
+		return "n/a"
+	case q.Role == rubric.Veto && q.Value < r.VetoAt:
+		return "deny"
+	case q.Role == rubric.Cap && q.Value < cmp.Or(q.CapAt, r.CapAt):
+		return "hold"
+	}
+	return "pass"
+}
+
+func table(r *engine.Result, qs []engine.QuestionResult) string {
 	var b strings.Builder
 	b.WriteString("| Check | | Value |\n|---|---|---|")
 	for _, q := range qs {
@@ -154,11 +191,14 @@ func table(qs []engine.QuestionResult) string {
 		case rubric.Veto:
 			name += " (veto)"
 		}
-		if q.Err != nil {
+		switch {
+		case hidden(r, q):
+			fmt.Fprintf(&b, "\n| %s | | %s |", name, status(r, q))
+		case q.Err != nil:
 			fmt.Fprintf(&b, "\n| %s | | n/a |", name)
-			continue
+		default:
+			fmt.Fprintf(&b, "\n| %s | `%s` | %.2f |", name, bar(q.Value), q.Value)
 		}
-		fmt.Fprintf(&b, "\n| %s | `%s` | %.2f |", name, bar(q.Value), q.Value)
 	}
 	return b.String()
 }
@@ -358,21 +398,13 @@ func JSON(r *engine.Result) ([]byte, error) {
 func Text(r *engine.Result) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s/%s#%d @ %s\n", clean(r.PR.Owner), clean(r.PR.Repo), r.PR.Number, short(r.PR.HeadSHA))
-	fmt.Fprintf(&b, "verdict: %s (%s mode)\n", r.Verdict.Verdict, r.Mode)
-	if r.Verdict.Failure != nil {
-		fmt.Fprintf(&b, "failure: %s\n", clean(r.Verdict.Failure.Error()))
-	} else {
-		fmt.Fprintf(&b, "score:   %.2f (approve >= %.2f, deny <= %.2f)\n", r.Verdict.Aggregate, r.ApproveAt, r.DenyAt)
-	}
-	label := "capped:  "
-	if r.Verdict.Verdict == verdict.Deny {
-		label = "also:    "
-	}
-	for _, c := range r.Verdict.Caps {
-		fmt.Fprintf(&b, "%s%s\n", label, capText[c])
-	}
+	textVerdict(&b, r)
 	b.WriteString("\n")
 	for _, q := range r.Questions {
+		if hidden(r, q) {
+			fmt.Fprintf(&b, "  %-16s %-5s %s\n", clean(q.ID), q.Role, status(r, q))
+			continue
+		}
 		val := "n/a"
 		if q.Err == nil {
 			val = fmt.Sprintf("%.2f", q.Value)
@@ -405,6 +437,26 @@ func Text(r *engine.Result) string {
 		fmt.Fprintf(&b, "excluded: %s\n", clean(f.Path))
 	}
 	return b.String()
+}
+
+// textVerdict writes the verdict, the score when shown, and why.
+func textVerdict(b *strings.Builder, r *engine.Result) {
+	fmt.Fprintf(b, "verdict: %s (%s mode)\n", r.Verdict.Verdict, r.Mode)
+	if e := r.Verdict.Earlier; e != "" {
+		fmt.Fprintf(b, "kept:    an earlier score of this commit was %s (rescore)\n", e)
+	}
+	if r.Verdict.Failure != nil {
+		fmt.Fprintf(b, "failure: %s\n", clean(r.Verdict.Failure.Error()))
+	} else if r.ShowScores {
+		fmt.Fprintf(b, "score:   %.2f (approve >= %.2f, deny <= %.2f)\n", r.Verdict.Aggregate, r.ApproveAt, r.DenyAt)
+	}
+	label := "capped:  "
+	if r.Verdict.Verdict == verdict.Deny {
+		label = "also:    "
+	}
+	for _, c := range r.Verdict.Caps {
+		fmt.Fprintf(b, "%s%s\n", label, capText[c])
+	}
 }
 
 func clean(s string) string {

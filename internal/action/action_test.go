@@ -401,3 +401,25 @@ func TestRun_RescoreLookupFailurePublishesNothing(t *testing.T) {
 		t.Errorf("code = %d err = %v writes = %v", code, err, w.writes)
 	}
 }
+
+// A blind-arm PR records its shadow verdict on the check run and shows it
+// nowhere a reviewer looks.
+func TestRun_BlindArmHidesVerdict(t *testing.T) {
+	w := newWorld(t, "shadow_blind_fraction = 1.0\n")
+	var log bytes.Buffer
+	outputs := map[string]string{}
+	e := env(w, "pull_request_target", event(t, map[string]any{"action": "opened", "pull_request": prJSON(false)}), &fakeDecider{noul: 0.01})
+	e.Log = &log
+	e.SetOutput = func(k, v string) { outputs[k] = v }
+	if code, err := Run(context.Background(), e); err != nil || code != 0 {
+		t.Fatalf("code = %d err = %v", code, err)
+	}
+	check := w.bodies["POST /repos/o/r/check-runs"]
+	if ext := fmt.Sprint(check["external_id"]); ext != "lgtm/v1 mode=shadow verdict=deny blind=1" {
+		t.Errorf("external_id = %q", ext)
+	}
+	public := fmt.Sprint(check["output"], w.bodies["POST /repos/o/r/issues/7/comments"]["body"], log.String())
+	if strings.Contains(public, "deny") || len(outputs) != 0 {
+		t.Errorf("verdict leaked: outputs = %v\n%s", outputs, public)
+	}
+}

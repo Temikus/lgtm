@@ -125,6 +125,7 @@ func TestLoad_Rejects(t *testing.T) {
 		"deny at zero":         {"deny_at = 0.0", "deny_at"},
 		"bad aggregate":        {`aggregate = "max"`, "aggregate"},
 		"bad rescore":          {`rescore = "highest"`, "rescore"},
+		"blind above one":      {"shadow_blind_fraction = 1.5", "shadow_blind_fraction"},
 		"cap at zero":          {"cap_at = 0.0", "cap_at"},
 		"cap at one":           {"cap_at = 1.0", "cap_at"},
 		"cap above approve":    {"approve_at = 0.5\ndeny_at = 0.1\ncap_at = 0.6", "cap_at"},
@@ -231,5 +232,32 @@ func TestFetchAtSHA_ServerErrorFails(t *testing.T) {
 
 	if _, err := FetchAtSHA(context.Background(), gh.Client, "o", "r", "basesha"); err == nil {
 		t.Fatal("a server error must not fall back to defaults")
+	}
+}
+
+func TestBlind(t *testing.T) {
+	c, err := Load([]byte("shadow_blind_fraction = 0.2"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	blind := 0
+	for n := 1; n <= 10000; n++ {
+		if c.Blind("o", "r", n) {
+			blind++
+		}
+	}
+	if blind < 1800 || blind > 2200 {
+		t.Errorf("%d of 10000 PRs blind, want about 2000", blind)
+	}
+	for n := 1; n <= 50; n++ {
+		if c.Blind("o", "r", n) != c.Blind("O", "R", n) {
+			t.Errorf("PR %d changes arm with the repo name's case", n)
+		}
+	}
+	c.Mode = Enforce
+	for n := 1; n <= 50; n++ {
+		if c.Blind("o", "r", n) {
+			t.Fatal("enforce mode must never hide a verdict")
+		}
 	}
 }

@@ -93,6 +93,11 @@ func TestComment_Golden(t *testing.T) {
 			r.LockSources = []prstate.LockSource{{Path: "package-lock.json", Host: "evil.example"}}
 			return r
 		}(),
+		"shadow_blind": func() *engine.Result {
+			r := result(config.Shadow, verdict.Result{Verdict: verdict.Deny, Raw: verdict.Deny, Aggregate: 0.05})
+			r.Blind = true
+			return r
+		}(),
 		"shadow_rescored": result(config.Shadow, verdict.Result{Verdict: verdict.NeedsHuman, Raw: verdict.Approve, Aggregate: 0.97, Earlier: verdict.NeedsHuman}),
 	}
 	for name, r := range tests {

@@ -121,7 +121,7 @@ func (env Env) score(ctx context.Context, pr prstate.PR) (int, error) {
 	if env.StepSummary != nil {
 		_, _ = io.WriteString(env.StepSummary, report.Summary(r))
 	}
-	if env.SetOutput != nil {
+	if env.SetOutput != nil && !r.Blind {
 		env.SetOutput("verdict", string(r.Verdict.Verdict))
 		if cfg.ShowScores {
 			env.SetOutput("score", fmt.Sprintf("%.4f", r.Verdict.Aggregate))

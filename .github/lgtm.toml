@@ -19,6 +19,10 @@ deny_at = 0.1
 # cap values and the score.
 show_scores = true
 
+# Keep a fifth of PRs blind, to compare review depth with and without a
+# visible verdict (#32).
+shadow_blind_fraction = 0.2
+
 # Fork PRs from authors without write access never get approve.
 trust_forks = false
 

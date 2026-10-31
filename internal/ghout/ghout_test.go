@@ -204,3 +204,14 @@ func TestDecodeState(t *testing.T) {
 		}
 	}
 }
+
+func TestState_RoundTrip(t *testing.T) {
+	for _, st := range []State{
+		{Mode: config.Shadow, Verdict: verdict.Deny, Blind: true},
+		{Mode: config.Enforce, Verdict: verdict.NeedsHuman},
+	} {
+		if got, ok := DecodeState(EncodeState(st)); !ok || got != st {
+			t.Errorf("round trip of %+v gave %+v (ok %v)", st, got, ok)
+		}
+	}
+}

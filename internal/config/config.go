@@ -4,8 +4,11 @@ package config
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"os"
 	"slices"
@@ -111,34 +114,38 @@ type Config struct {
 	AllowUncalibrated bool
 	// ShowScores puts veto and cap values and the aggregate in the comment,
 	// check run, and Action log. Off, they'd be an oracle for tuning a PR.
-	ShowScores  bool
-	Rescore     verdict.Rescore
-	Calibration *Calibration
-	Rubric      []rubric.Question
+	ShowScores bool
+	Rescore    verdict.Rescore
+	// ShadowBlindFraction of PRs get a shadow verdict that's recorded but
+	// not shown, as a control group for measuring how LGTM changes review.
+	ShadowBlindFraction float64
+	Calibration         *Calibration
+	Rubric              []rubric.Question
 }
 
 // file is the TOML shape. Pointers tell "unset" from zero.
 type file struct {
-	Provider           *string                    `toml:"provider"`
-	Model              *string                    `toml:"model"`
-	Mode               *string                    `toml:"mode"`
-	ApproveAt          *float64                   `toml:"approve_at"`
-	DenyAt             *float64                   `toml:"deny_at"`
-	CapAt              *float64                   `toml:"cap_at"`
-	VetoAt             *float64                   `toml:"veto_at"`
-	Aggregate          *string                    `toml:"aggregate"`
-	TrustForks         *bool                      `toml:"trust_forks"`
-	LockfileRegistries []string                   `toml:"lockfile_registries"`
-	CIRequired         []string                   `toml:"ci_required"`
-	Exclude            []string                   `toml:"exclude"`
-	Sensitive          []string                   `toml:"sensitive_paths"`
-	MaxChangedLines    *int                       `toml:"max_changed_lines"`
-	BorderlineMargin   *float64                   `toml:"borderline_margin"`
-	AllowUncalibrated  *bool                      `toml:"allow_uncalibrated"`
-	ShowScores         *bool                      `toml:"show_scores"`
-	Rescore            *string                    `toml:"rescore"`
-	Calibration        *Calibration               `toml:"calibration"`
-	Questions          map[string]rubric.Override `toml:"questions"`
+	Provider            *string                    `toml:"provider"`
+	Model               *string                    `toml:"model"`
+	Mode                *string                    `toml:"mode"`
+	ApproveAt           *float64                   `toml:"approve_at"`
+	DenyAt              *float64                   `toml:"deny_at"`
+	CapAt               *float64                   `toml:"cap_at"`
+	VetoAt              *float64                   `toml:"veto_at"`
+	Aggregate           *string                    `toml:"aggregate"`
+	TrustForks          *bool                      `toml:"trust_forks"`
+	LockfileRegistries  []string                   `toml:"lockfile_registries"`
+	CIRequired          []string                   `toml:"ci_required"`
+	Exclude             []string                   `toml:"exclude"`
+	Sensitive           []string                   `toml:"sensitive_paths"`
+	MaxChangedLines     *int                       `toml:"max_changed_lines"`
+	BorderlineMargin    *float64                   `toml:"borderline_margin"`
+	AllowUncalibrated   *bool                      `toml:"allow_uncalibrated"`
+	ShowScores          *bool                      `toml:"show_scores"`
+	Rescore             *string                    `toml:"rescore"`
+	ShadowBlindFraction *float64                   `toml:"shadow_blind_fraction"`
+	Calibration         *Calibration               `toml:"calibration"`
+	Questions           map[string]rubric.Override `toml:"questions"`
 }
 
 // Load parses and validates config. Empty input gives the defaults.
@@ -165,25 +172,26 @@ func Load(data []byte) (*Config, error) {
 	}
 
 	c := &Config{
-		Provider:           deref(f.Provider, "openrouter"),
-		Model:              deref(f.Model, DefaultModel),
-		Mode:               Mode(deref(f.Mode, string(Shadow))),
-		ApproveAt:          deref(f.ApproveAt, 0.9),
-		DenyAt:             deref(f.DenyAt, 0.1),
-		CapAt:              deref(f.CapAt, DefaultCapAt),
-		VetoAt:             deref(f.VetoAt, DefaultVetoAt),
-		Aggregate:          verdict.Aggregate(deref(f.Aggregate, string(verdict.Min))),
-		TrustForks:         deref(f.TrustForks, false),
-		LockfileRegistries: f.LockfileRegistries,
-		CIRequired:         f.CIRequired,
-		Exclude:            f.Exclude,
-		Sensitive:          f.Sensitive,
-		MaxChangedLines:    deref(f.MaxChangedLines, DefaultMaxChangedLines),
-		BorderlineMargin:   deref(f.BorderlineMargin, 0.05),
-		AllowUncalibrated:  deref(f.AllowUncalibrated, false),
-		ShowScores:         deref(f.ShowScores, false),
-		Rescore:            verdict.Rescore(deref(f.Rescore, string(verdict.RescoreLowest))),
-		Calibration:        f.Calibration,
+		Provider:            deref(f.Provider, "openrouter"),
+		Model:               deref(f.Model, DefaultModel),
+		Mode:                Mode(deref(f.Mode, string(Shadow))),
+		ApproveAt:           deref(f.ApproveAt, 0.9),
+		DenyAt:              deref(f.DenyAt, 0.1),
+		CapAt:               deref(f.CapAt, DefaultCapAt),
+		VetoAt:              deref(f.VetoAt, DefaultVetoAt),
+		Aggregate:           verdict.Aggregate(deref(f.Aggregate, string(verdict.Min))),
+		TrustForks:          deref(f.TrustForks, false),
+		LockfileRegistries:  f.LockfileRegistries,
+		CIRequired:          f.CIRequired,
+		Exclude:             f.Exclude,
+		Sensitive:           f.Sensitive,
+		MaxChangedLines:     deref(f.MaxChangedLines, DefaultMaxChangedLines),
+		BorderlineMargin:    deref(f.BorderlineMargin, 0.05),
+		AllowUncalibrated:   deref(f.AllowUncalibrated, false),
+		ShowScores:          deref(f.ShowScores, false),
+		Rescore:             verdict.Rescore(deref(f.Rescore, string(verdict.RescoreLowest))),
+		ShadowBlindFraction: deref(f.ShadowBlindFraction, 0),
+		Calibration:         f.Calibration,
 	}
 	if c.Sensitive == nil {
 		c.Sensitive = slices.Clone(DefaultSensitive)
@@ -260,6 +268,16 @@ func (c *Config) Snapshot() string {
 	return ""
 }
 
+// Blind reports whether a PR is in the shadow-mode blind arm. The arm comes
+// from the PR, not the commit, so a new push can't move a PR between arms.
+func (c *Config) Blind(owner, repo string, number int) bool {
+	if c.Mode != Shadow || c.ShadowBlindFraction <= 0 {
+		return false
+	}
+	sum := sha256.Sum256(fmt.Appendf(nil, "%s/%s#%d", strings.ToLower(owner), strings.ToLower(repo), number))
+	return float64(binary.BigEndian.Uint64(sum[:8]))/math.MaxUint64 < c.ShadowBlindFraction
+}
+
 // Calibrated reports whether a calibration exists for the configured model.
 func (c *Config) Calibrated() bool {
 	return c.Calibration != nil && c.Calibration.Model == c.Model
@@ -274,6 +292,9 @@ func (c *Config) validate() error {
 	}
 	if err := validThresholds(c.ApproveAt, c.DenyAt); err != nil {
 		return err
+	}
+	if c.ShadowBlindFraction < 0 || c.ShadowBlindFraction > 1 {
+		return fmt.Errorf("shadow_blind_fraction must be in [0, 1], got %v", c.ShadowBlindFraction)
 	}
 	if c.BorderlineMargin < 0 || c.BorderlineMargin >= 0.5 {
 		return fmt.Errorf("borderline_margin must be in [0, 0.5), got %v", c.BorderlineMargin)

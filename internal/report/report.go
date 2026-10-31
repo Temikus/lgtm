@@ -57,6 +57,9 @@ func Headline(v verdict.Verdict) string {
 // Title is the check-run title, e.g. "0.94 · approve".
 func Title(r *engine.Result) string {
 	v := r.Verdict
+	if r.Blind {
+		return "blind sample"
+	}
 	if errors.Is(v.Failure, prstate.ErrNoFiles) {
 		return "needs human review (nothing to score)"
 	}
@@ -97,8 +100,14 @@ func Comment(r *engine.Result) string {
 // Summary renders the check-run summary: the same content, nothing collapsed.
 func Summary(r *engine.Result) string { return body(r, true) }
 
+// BlindText explains a blind-arm comment, which shows no verdict.
+const BlindText = "LGTM scored this PR but doesn't show the result: the PR is in the blind sample used to measure how LGTM changes review (`shadow_blind_fraction`). Shadow mode: nothing is gated."
+
 func body(r *engine.Result, expanded bool) string {
 	v := r.Verdict
+	if r.Blind {
+		return "### LGTM (shadow) · blind sample\n\n" + BlindText + "\n"
+	}
 	var sections []string
 	if r.Mode == config.Shadow {
 		sections = append(sections, "### LGTM (shadow) · would have: "+Headline(v.Verdict))
@@ -406,6 +415,10 @@ func JSON(r *engine.Result) ([]byte, error) {
 func Text(r *engine.Result) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s/%s#%d @ %s\n", clean(r.PR.Owner), clean(r.PR.Repo), r.PR.Number, short(r.PR.HeadSHA))
+	if r.Blind {
+		b.WriteString("verdict: hidden (blind sample, shadow_blind_fraction)\n")
+		return b.String()
+	}
 	textVerdict(&b, r)
 	b.WriteString("\n")
 	for _, q := range r.Questions {

@@ -40,6 +40,8 @@ Any of these holds an approve at needs-human: a cap question is below its `cap_a
 
 By default, the comment, check run, and Action log show veto and cap questions only as pass or hold, and leave out the score, so a PR author can't tune a PR against them. `show_scores = true` shows every value. A re-score of the same commit, such as after a description edit, keeps the lower verdict; `rescore` sets this to `no_approve` (only blocks a raise to approve) or `latest`.
 
+In shadow mode, `shadow_blind_fraction` keeps that share of PRs blind: the verdict is recorded on the check run but the comment, check title, log, and `verdict` output don't show it. Comparing review on blind and shown PRs tells you whether a visible verdict makes people skim. The arm is picked per PR, so a new push can't move a PR between arms.
+
 In **enforce** mode, the check run fails on deny and needs-human, and the job exits non-zero. A needs-human check passes once someone with write access approves the scored commit, and stays passed if that commit is scored again, such as after an edit to the description. A new push needs a new approval. Enforce mode needs a `[calibration]` table from `lgtm replay --write`, because raw model probabilities aren't calibrated. Use it alongside required reviewers or CODEOWNERS, never instead of them.
 
 ## Configuration

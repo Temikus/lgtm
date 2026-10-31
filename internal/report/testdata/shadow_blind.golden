@@ -1,0 +1,6 @@
+<!-- lgtm -->
+### LGTM (shadow) · blind sample
+
+LGTM scored this PR but doesn't show the result: the PR is in the blind sample used to measure how LGTM changes review (`shadow_blind_fraction`). Shadow mode: nothing is gated.
+
+<!-- lgtm:sha=0123456789abcdef -->

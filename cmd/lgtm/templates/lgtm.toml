@@ -32,6 +32,11 @@ deny_at = 0.1
 # latest ignores the earlier score.
 # rescore = "lowest"
 
+# In shadow mode, this share of PRs gets a verdict that's recorded on the
+# check run but not shown, as a control group for measuring whether LGTM
+# changes how people review. The arm is fixed per PR.
+# shadow_blind_fraction = 0.0
+
 # A lockfile change that resolves a package from outside npm, PyPI,
 # crates.io, RubyGems, or pub.dev holds approve. Add private registries:
 # lockfile_registries = ["npm.example.com"]

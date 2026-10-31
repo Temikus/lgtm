@@ -404,7 +404,7 @@ Progress: 1 to 4 done (2026-10-16), and 5 and 6 done (2026-10-18; v0.1.0). getlg
 - **Cost abuse.** Anyone can open fork PRs and push repeatedly. Mitigations: concurrency with cancel-in-progress, the batch cap, bounded retries, and a spend-limited key.
 - **Provider outage blocks merges in enforce mode.** This is intended fail-closed behaviour; the human-approval flip is the escape hatch.
 - **Jev's biases on PR data are unmeasured.** The evidence comes from one Jev preprint and from generative LLM judges. Mitigations: calibration is required for enforce mode, the perturbation suite, and re-running replay whenever the model changes. Calibration records the dated version, so a silent alias move is caught. A change the provider ships without a new date isn't; only shadow-mode metrics and a scheduled content-free probe would show it.
-- **Automation bias.** Reviewers may skim PRs that LGTM approves. Mitigations: the pass wording, enforce mode alongside required reviewers, and shadow-mode metrics on human review depth.
+- **Automation bias.** Reviewers may skim PRs that LGTM approves. Mitigations: the pass wording, enforce mode alongside required reviewers, and shadow-mode metrics on human review depth, compared against a blind arm (`shadow_blind_fraction`) whose verdicts are recorded but not shown. The blind verdict is still readable through the checks API, so it's hidden from reviewers, not secret.
 
 ## Verification
 

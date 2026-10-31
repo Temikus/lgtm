@@ -63,7 +63,7 @@ func (p Publisher) approved(r *engine.Result) bool {
 
 // Check creates a completed LGTM check run on the scored SHA.
 func (p Publisher) Check(ctx context.Context, r *engine.Result) error {
-	st := State{Mode: r.Mode, Verdict: r.Verdict.Verdict}
+	st := State{Mode: r.Mode, Verdict: r.Verdict.Verdict, Blind: r.Blind}
 	ext, conclusion, title, summary := EncodeState(st), report.Conclusion(r), report.Title(r), report.Summary(r)
 	if p.approved(r) {
 		ext, title, summary = approvedOutput(st, p.ApprovedBy, summary)
@@ -131,16 +131,23 @@ type State struct {
 	Verdict verdict.Verdict
 	// Human means a human approval turned LGTM's needs-human into approve.
 	Human bool
+	// Blind means the verdict was recorded but not shown.
+	Blind bool
 }
 
 const (
 	statePrefix = "lgtm/v1"
 	humanSuffix = " human=1"
+	blindSuffix = " blind=1" // shadow only, so never with humanSuffix
 )
 
 // EncodeState formats a State for external_id.
 func EncodeState(s State) string {
-	return fmt.Sprintf("%s mode=%s verdict=%s", statePrefix, s.Mode, s.Verdict)
+	out := fmt.Sprintf("%s mode=%s verdict=%s", statePrefix, s.Mode, s.Verdict)
+	if s.Blind {
+		out += blindSuffix
+	}
+	return out
 }
 
 // DecodeState parses external_id; ok is false for anything else.
@@ -152,6 +159,7 @@ func DecodeState(s string) (State, bool) {
 	}
 	st.Mode, st.Verdict = config.Mode(mode), verdict.Verdict(v)
 	st.Human = strings.HasSuffix(s, humanSuffix)
+	st.Blind = strings.HasSuffix(s, blindSuffix)
 	switch st.Verdict {
 	case verdict.Approve, verdict.Deny, verdict.NeedsHuman:
 	default:

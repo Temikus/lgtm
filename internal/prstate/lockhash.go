@@ -144,19 +144,37 @@ func (hf hashFormat) swaps(hunk []string) []string {
 
 // versionChangedAbove looks at the new side of the patch only: removed
 // lines may belong to a package deleted in between, so they neither count
-// towards the window nor vouch for the hash.
+// towards the window nor vouch for the hash. An added version line that
+// matches a removed one, spacing and quotes aside, was only rewritten to
+// hide a swap and doesn't count.
 func (hf hashFormat) versionChangedAbove(hunk []string, at int) bool {
 	for i, seen := at-1, 0; i >= 0 && seen < versionWindow; i-- {
 		if strings.HasPrefix(hunk[i], "-") {
 			continue
 		}
 		seen++
-		if strings.HasPrefix(hunk[i], "+") && hf.version.MatchString(hunk[i][1:]) {
+		if strings.HasPrefix(hunk[i], "+") && hf.version.MatchString(hunk[i][1:]) && !hf.rewritten(hunk, i) {
 			return true
 		}
 	}
 	return false
 }
+
+// rewritten reports whether the version line added at i replaces a removed
+// one that says the same: the nearest removed version line above it in its
+// run of changed lines.
+func (hf hashFormat) rewritten(hunk []string, i int) bool {
+	for j := i - 1; j >= 0 && changed(hunk[j]); j-- {
+		if strings.HasPrefix(hunk[j], "-") && hf.version.MatchString(hunk[j][1:]) {
+			return bare(hunk[j][1:]) == bare(hunk[i][1:])
+		}
+	}
+	return false
+}
+
+var spaceOrQuote = strings.NewReplacer(" ", "", "\t", "", `"`, "", "'", "")
+
+func bare(line string) string { return spaceOrQuote.Replace(line) }
 
 func changed(line string) bool {
 	return strings.HasPrefix(line, "+") || strings.HasPrefix(line, "-")

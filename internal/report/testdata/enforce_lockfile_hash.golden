@@ -1,0 +1,28 @@
+<!-- lgtm -->
+### LGTM · needs human review
+
+| Check | | Value |
+|---|---|---|
+| aligned | `██████████` | 0.97 |
+| scoped | `██████████` | 0.97 |
+| malicious (veto) | | pass |
+| hygiene (cap) | | pass |
+| breaks (cap) | | pass |
+| injection (cap) | | pass |
+
+Held at needs-human because:
+- a lockfile hash changed while the package's version didn't
+
+<details><summary>Details</summary>
+
+- tested: 0.42
+- described: 0.97
+- risk: moderate (0.70)
+- reviewability: easy (0.75)
+- Model: typesafe/jev-1.13 · 4210 input tokens · $0.00018 · 2 calls · scored 0123456
+- Lockfile hash: web/package-lock.json changes a hash at the same version: "integrity": "sha512-BBBB",
+- Excluded (1): go.sum (+12 −3)
+
+</details>
+
+<!-- lgtm:sha=0123456789abcdef -->

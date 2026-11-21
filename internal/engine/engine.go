@@ -71,6 +71,7 @@ type Result struct {
 	// LockSources are lockfile package sources outside the allowed
 	// registries; any of them holds approve.
 	LockSources []prstate.LockSource
+	HashSwaps   []prstate.HashSwap
 	AutoRuns    []prstate.AutoRun
 	// CIFailed are required checks that failed on the head; CIErr says why
 	// they couldn't be read, which doesn't hold the PR.
@@ -162,6 +163,8 @@ func check(ctx context.Context, gh *github.Client, snap *prstate.Snapshot, opts 
 		})
 	})
 	in.LockSource = len(r.LockSources) > 0
+	r.HashSwaps = slices.Clone(snap.HashSwaps)
+	in.LockHash = len(r.HashSwaps) > 0
 	r.AutoRuns = slices.Clone(snap.AutoRuns)
 	in.AutoRun = len(r.AutoRuns) > 0
 	r.CIFailed, r.CIErr = failedChecks(ctx, gh, snap.PR, opts)

@@ -231,7 +231,8 @@ const maxLockSourcesShown = 10
 var capText = map[verdict.CapKind]string{
 	verdict.CapQuestion:     "a cap question is below `cap_at`",
 	verdict.PartialView:     "LGTM couldn't see the whole diff",
-	verdict.LockfileSource:  "a lockfile pulls a package from outside the usual registries (`lockfile_registries` adds hosts)",
+	verdict.LockfileSource:  "a lockfile or registry config pulls packages from outside the usual registries (`lockfile_registries` adds hosts)",
+	verdict.LockfileHash:    "a lockfile hash changed while the package's version didn't",
 	verdict.AutoRunCommand:  "the diff changes files that run commands on their own on developers' machines (editor tasks, dev containers, git hooks, or AI-agent settings)",
 	verdict.CIFailing:       "a required check failed on this commit",
 	verdict.SensitivePath:   "the diff changes a sensitive path, such as a CI workflow (`sensitive_paths`)",
@@ -295,6 +296,13 @@ func details(r *engine.Result) string {
 			host = "a non-URL source"
 		}
 		fmt.Fprintf(&b, "- Lockfile source: %s resolves from %s\n", Escape(s.Path), Escape(host))
+	}
+	for i, s := range r.HashSwaps {
+		if i == maxLockSourcesShown {
+			fmt.Fprintf(&b, "- … and %d more lockfile hashes\n", len(r.HashSwaps)-i)
+			break
+		}
+		fmt.Fprintf(&b, "- Lockfile hash: %s changes a hash at the same version: %s\n", Escape(s.Path), Escape(capLen(s.Line, maxErrorLen)))
 	}
 	if r.TrustErr != nil {
 		fmt.Fprintf(&b, "- Author permission check failed: %s\n", Escape(capLen(r.TrustErr.Error(), maxErrorLen)))
@@ -450,6 +458,9 @@ func Text(r *engine.Result) string {
 	}
 	for _, s := range r.LockSources {
 		fmt.Fprintf(&b, "lockfile source: %s resolves from %s\n", clean(s.Path), clean(s.Host))
+	}
+	for _, s := range r.HashSwaps {
+		fmt.Fprintf(&b, "lockfile hash: %s: %s\n", clean(s.Path), clean(capLen(s.Line, maxErrorLen)))
 	}
 	for _, a := range r.AutoRuns {
 		fmt.Fprintf(&b, "auto-run: %s in %s\n", clean(a.What), clean(a.Path))

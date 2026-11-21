@@ -41,6 +41,7 @@ type Point struct {
 	Values     []verdict.Value
 	Partial    bool
 	LockSource bool
+	LockHash   bool
 	AutoRun    bool
 	Sensitive  bool
 	TooLarge   bool
@@ -56,7 +57,7 @@ func (p Point) fitted() bool { return p.Label != Unlabelled && !p.Low }
 // replay treats it as passed.
 func (p Point) Verdict(pol verdict.Policy) verdict.Verdict {
 	return verdict.Decide(pol, verdict.Input{
-		Values: p.Values, Partial: p.Partial, LockSource: p.LockSource, AutoRun: p.AutoRun, Sensitive: p.Sensitive, TooLarge: p.TooLarge, Untrusted: p.Untrusted,
+		Values: p.Values, Partial: p.Partial, LockSource: p.LockSource, LockHash: p.LockHash, AutoRun: p.AutoRun, Sensitive: p.Sensitive, TooLarge: p.TooLarge, Untrusted: p.Untrusted,
 		Consistency: func() (bool, error) { return true, nil },
 	}).Verdict
 }

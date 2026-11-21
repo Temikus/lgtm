@@ -36,6 +36,7 @@ const (
 	CapQuestion     CapKind = "cap-question"
 	PartialView     CapKind = "partial-view"
 	LockfileSource  CapKind = "lockfile-source"
+	LockfileHash    CapKind = "lockfile-hash"
 	AutoRunCommand  CapKind = "auto-run"
 	CIFailing       CapKind = "ci-failing"
 	SensitivePath   CapKind = "sensitive-path"
@@ -74,6 +75,8 @@ type Input struct {
 	// LockSource means a lockfile change pulls a package from outside the
 	// allowed registries.
 	LockSource bool
+	// LockHash means a lockfile hash changed while its version didn't.
+	LockHash bool
 	// AutoRun means the diff sets a command to run on its own on a
 	// developer's machine.
 	AutoRun bool
@@ -132,7 +135,7 @@ func Floor(rule Rescore, earlier Verdict, r Result) Result {
 }
 
 // Decide applies the aggregate and thresholds, then a veto, then caps in
-// order: cap question, partial view, lockfile source, auto-run, failed CI, sensitive path, too large, untrusted author, model change,
+// order: cap question, partial view, lockfile source, lockfile hash, auto-run, failed CI, sensitive path, too large, untrusted author, model change,
 // borderline consistency. A veto question below VetoAt denies outright. A
 // cap turns approve into needs-human and leaves deny alone.
 func Decide(p Policy, in Input) Result {
@@ -173,6 +176,9 @@ func caps(p Policy, in Input) []CapKind {
 	}
 	if in.LockSource {
 		out = append(out, LockfileSource)
+	}
+	if in.LockHash {
+		out = append(out, LockfileHash)
 	}
 	if in.AutoRun {
 		out = append(out, AutoRunCommand)

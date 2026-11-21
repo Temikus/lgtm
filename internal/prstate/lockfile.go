@@ -38,6 +38,44 @@ var (
 	npmResolved = regexp.MustCompile(`^\s*"resolved"\s*:\s*"([^"]*)"`)
 )
 
+// isRegistryConfig reports whether p is a package manager config file that
+// can point installs at another registry without touching a lockfile.
+func isRegistryConfig(p string) bool {
+	base, dir := path.Base(p), "/"+path.Dir(p)+"/"
+	switch base {
+	case ".npmrc", ".yarnrc", ".yarnrc.yml", "bunfig.toml", "pip.conf", "pip.ini", "uv.toml", "poetry.toml":
+		return true
+	case "config.toml", "config":
+		return strings.HasSuffix(dir, "/.cargo/") || (base == "config" && strings.HasSuffix(dir, "/.bundle/"))
+	}
+	return false
+}
+
+// configSources returns the URLs that added lines of a registry config
+// name. Any key may redirect installs, so every added line counts, comments
+// and loopback hosts aside. A redirect with no URL on the added line, such as Cargo's
+// replace-with naming an existing source, isn't seen.
+func configSources(patch string) []LockSource {
+	var out []LockSource
+	for _, line := range strings.Split(patch, "\n") {
+		if !strings.HasPrefix(line, "+") || strings.HasPrefix(line, "+++") {
+			continue
+		}
+		if t := strings.TrimSpace(line[1:]); strings.HasPrefix(t, "#") || strings.HasPrefix(t, ";") {
+			continue
+		}
+		// A trailing comment may link to docs.
+		line, _, _ = strings.Cut(line, " #")
+		for _, src := range sources(line) {
+			// A loopback registry, as test fixtures use, serves nothing remote.
+			if src.Host != "localhost" && src.Host != "127.0.0.1" && src.Host != "::1" {
+				out = append(out, src)
+			}
+		}
+	}
+	return out
+}
+
 // IsLockfile reports whether p is a lockfile the check reads.
 func IsLockfile(p string) bool {
 	_, ok := lockKeys[path.Base(p)]
@@ -57,11 +95,24 @@ var (
 	scpSource = regexp.MustCompile(`\b[\w.-]+@([\w.-]+):[\w./~-]+`)
 )
 
-// lockSources returns the sources that added lines in lockfile patches
-// point at, other than DefaultRegistries.
+// lockSources returns the sources that added lines in lockfile and registry
+// config patches point at, other than DefaultRegistries.
 func lockSources(files []File) []LockSource {
 	var out []LockSource
+	add := func(f File, found []LockSource) {
+		for _, src := range found {
+			if allowed(f.Path, src) || slices.ContainsFunc(out, func(s LockSource) bool { return s.URL == src.URL }) {
+				continue
+			}
+			src.Path = f.Path
+			out = append(out, src)
+		}
+	}
 	for _, f := range files {
+		if isRegistryConfig(f.Path) {
+			add(f, configSources(f.Patch))
+			continue
+		}
 		key, ok := lockKeys[path.Base(f.Path)]
 		if !ok {
 			continue
@@ -76,13 +127,7 @@ func lockSources(files []File) []LockSource {
 			if m := npmResolved.FindStringSubmatch(line[1:]); key == npmResolved && m != nil && len(found) == 0 {
 				found = []LockSource{{URL: m[1]}}
 			}
-			for _, src := range found {
-				if allowed(f.Path, src) || slices.ContainsFunc(out, func(s LockSource) bool { return s.URL == src.URL }) {
-					continue
-				}
-				src.Path = f.Path
-				out = append(out, src)
-			}
+			add(f, found)
 		}
 	}
 	return out

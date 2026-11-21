@@ -37,7 +37,7 @@ func Failed(ctx context.Context, gh *github.Client, owner, repo, base, sha strin
 		if err != nil {
 			return nil, fmt.Errorf("listing check runs: %w", err)
 		}
-		if run.GetStatus() == "completed" && failure(run.GetConclusion()) && slices.Contains(required, run.GetName()) {
+		if run.GetStatus() == "completed" && Failure(run.GetConclusion()) && slices.Contains(required, run.GetName()) {
 			failed = appendOnce(failed, run.GetName())
 		}
 	}
@@ -53,9 +53,9 @@ func Failed(ctx context.Context, gh *github.Client, owner, repo, base, sha strin
 	return failed, nil
 }
 
-// failure is a conclusion that means the check ran and didn't pass.
+// Failure is a conclusion that means the check ran and didn't pass.
 // Cancelled, skipped, and neutral say nothing about the code.
-func failure(conclusion string) bool {
+func Failure(conclusion string) bool {
 	return conclusion == "failure" || conclusion == "timed_out" || conclusion == "startup_failure"
 }
 

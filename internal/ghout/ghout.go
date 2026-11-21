@@ -209,6 +209,67 @@ func MarkApproved(ctx context.Context, gh *github.Client, owner, repo string, ru
 	return nil
 }
 
+// MarkCIFailed turns an approve into needs-human when a required check
+// failed after LGTM scored the commit. No model call is involved. A blind
+// check keeps its title and summary, which show no verdict.
+func MarkCIFailed(ctx context.Context, gh *github.Client, owner, repo string, run *github.CheckRun, failed []string) error {
+	st, _ := DecodeState(run.GetExternalID())
+	st.Verdict = verdict.NeedsHuman
+	// GitHub counts neutral as passing, so enforce mode fails the check.
+	conclusion, title := "failure", "needs human review (a required check failed)"
+	if st.Mode == config.Shadow {
+		conclusion, title = "neutral", "would have: "+title
+	}
+	opts := github.UpdateCheckRunOptions{
+		Name:        CheckName,
+		ExternalID:  new(EncodeState(st)),
+		Status:      new("completed"),
+		Conclusion:  new(conclusion),
+		CompletedAt: &github.Timestamp{Time: time.Now()},
+	}
+	if !st.Blind {
+		summary := CIFailedNote(failed) + "\n\n" + run.GetOutput().GetSummary()
+		opts.Output = &github.CheckRunOutput{Title: new(title), Summary: new(capSummary(summary))}
+	}
+	if _, _, err := gh.Checks.UpdateCheckRun(ctx, owner, repo, run.GetID(), opts); err != nil {
+		return fmt.Errorf("updating check run: %w", err)
+	}
+	return nil
+}
+
+// CIFailedNote is the line MarkCIFailed and Publisher.Note add.
+func CIFailedNote(failed []string) string {
+	names := make([]string, len(failed))
+	for i, f := range failed {
+		names[i] = report.Escape(f)
+	}
+	return fmt.Sprintf("**Update:** a required check failed after LGTM scored this commit (%s), so it now needs human review.", strings.Join(names, ", "))
+}
+
+// Note adds a line under the marker of the sticky comment, once. The full
+// comment can't be rendered again without the scores; the next scoring
+// replaces it whole. With no sticky comment there is nothing to do.
+func (p Publisher) Note(ctx context.Context, note string) error {
+	for c, err := range p.GH.Issues.ListCommentsIter(ctx, p.PR.Owner, p.PR.Repo, p.PR.Number, &github.IssueListCommentsOptions{ListOptions: github.ListOptions{PerPage: 100}}) {
+		if err != nil {
+			return fmt.Errorf("listing comments: %w", err)
+		}
+		rest, ok := strings.CutPrefix(c.GetBody(), report.Marker)
+		if c.GetUser().GetLogin() != p.CommentAuthor || !ok {
+			continue
+		}
+		if strings.Contains(rest, note) {
+			return nil
+		}
+		body := report.Marker + "\n" + note + "\n" + rest
+		if _, _, err := p.GH.Issues.UpdateComment(ctx, p.PR.Owner, p.PR.Repo, c.GetID(), github.IssueCommentRequest{Body: body}); err != nil {
+			return fmt.Errorf("updating comment: %w", err)
+		}
+		return nil
+	}
+	return nil
+}
+
 // approvedOutput is the check run state, title, and summary for a
 // needs-human verdict that a qualifying human approved.
 func approvedOutput(st State, by, summary string) (ext, title, sum string) {

@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/go-github/v92/github"
 
+	"github.com/Temikus/lgtm/internal/ci"
 	"github.com/Temikus/lgtm/internal/config"
 	"github.com/Temikus/lgtm/internal/engine"
 	"github.com/Temikus/lgtm/internal/ghout"
@@ -42,8 +43,9 @@ type payload struct {
 	PullRequest *github.PullRequest `json:"pull_request"`
 	Repository  *github.Repository  `json:"repository"`
 	WorkflowRun *struct {
-		Event   string `json:"event"`
-		HeadSHA string `json:"head_sha"`
+		Event      string `json:"event"`
+		HeadSHA    string `json:"head_sha"`
+		Conclusion string `json:"conclusion"`
 	} `json:"workflow_run"`
 }
 
@@ -71,14 +73,22 @@ func Run(ctx context.Context, env Env) (int, error) {
 		}
 		return env.review(ctx, prstate.FromPullRequest(owner, repo, p.PullRequest), true)
 	case "workflow_run":
-		if p.WorkflowRun == nil || p.WorkflowRun.Event != "pull_request_review" {
-			return env.skip("workflow_run not from a review")
+		if p.WorkflowRun == nil {
+			return env.skip("workflow_run without a run")
+		}
+		review := p.WorkflowRun.Event == "pull_request_review"
+		// A CI run that passed, or was cancelled or skipped, never changes a verdict.
+		if !review && !ci.Failure(p.WorkflowRun.Conclusion) {
+			return env.skip("workflow_run that didn't fail")
 		}
 		pr, err := findOpenPR(ctx, env.GH, owner, repo, p.WorkflowRun.HeadSHA)
 		if err != nil || pr == nil {
 			return 0, err
 		}
-		return env.review(ctx, *pr, false)
+		if review {
+			return env.review(ctx, *pr, false)
+		}
+		return env.recheck(ctx, *pr)
 	}
 	return env.skip("event %q", env.EventName)
 }
@@ -209,6 +219,49 @@ func (env Env) review(ctx context.Context, pr prstate.PR, scoreIfMissing bool) (
 	}
 	pub := ghout.Publisher{GH: env.GH, PR: pr}
 	return 0, pub.Label(ctx, false)
+}
+
+// recheck holds an approve when a required check failed after LGTM scored
+// the commit: LGTM usually runs alongside CI, so the failed-CI cap rarely
+// sees the failure. It never calls the model, and it only ever lowers a
+// verdict. A human approval that already passed the check stands.
+func (env Env) recheck(ctx context.Context, pr prstate.PR) (int, error) {
+	run, err := ghout.FindCheck(ctx, env.GH, pr.Owner, pr.Repo, pr.HeadSHA)
+	if err != nil {
+		return 1, err
+	}
+	if run == nil {
+		return env.skip("no LGTM check on %s; scoring will read CI itself", pr.HeadSHA)
+	}
+	st, _ := ghout.DecodeState(run.GetExternalID())
+	if st.Verdict != verdict.Approve || st.Human {
+		return env.skip("a failed run on %s, which LGTM didn't approve", pr.HeadSHA)
+	}
+	cfg, err := config.FetchAtSHA(ctx, env.GH, pr.Owner, pr.Repo, pr.BaseSHA)
+	if err != nil {
+		return 1, err
+	}
+	failed, err := ci.Failed(ctx, env.GH, pr.Owner, pr.Repo, pr.BaseRef, pr.HeadSHA, cfg.CIRequired, engine.OwnCheck)
+	if err != nil {
+		return 1, err
+	}
+	if len(failed) == 0 {
+		return env.skip("a failed run on %s with no required check failed", pr.HeadSHA)
+	}
+	_, _ = fmt.Fprintf(env.Log, "lgtm: required checks failed on %s after scoring: %s\n", pr.HeadSHA, strings.Join(failed, ", "))
+	if err := ghout.MarkCIFailed(ctx, env.GH, pr.Owner, pr.Repo, run, failed); err != nil {
+		return 1, err
+	}
+	pub := ghout.Publisher{GH: env.GH, PR: pr, CommentAuthor: env.CommentAuthor}
+	if !st.Blind {
+		if err := pub.Note(ctx, ghout.CIFailedNote(failed)); err != nil {
+			return 1, err
+		}
+	}
+	if st.Mode == config.Enforce {
+		return 0, pub.Label(ctx, true)
+	}
+	return 0, nil
 }
 
 // findOpenPR maps a workflow_run head SHA to its PR. workflow_run payloads

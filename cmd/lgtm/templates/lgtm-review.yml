@@ -1,10 +1,14 @@
-# Passes LGTM's needs-human check after a qualifying human approval on a
-# fork PR. Fork review events get a read-only token, so this runs in the
-# base repo's context instead. It never calls the model and needs no key.
+# Updates LGTM's check without calling the model, so it needs no key:
+# - approve: passes a needs-human check after a qualifying human approval
+#   on a fork PR. Fork review events get a read-only token, so this runs
+#   in the base repo's context instead.
+# - recheck: holds an approve when a required check fails after LGTM
+#   scored the commit.
 name: LGTM review
 
 on:
   workflow_run:
+    # Add your CI workflows' names here, such as [LGTM, CI], for the recheck job.
     workflows: [LGTM]
     types: [completed]
 
@@ -21,6 +25,21 @@ jobs:
       # Write: removing a label from a PR needs it; issues: write alone gets a 403.
       pull-requests: write
       contents: read
+    # No checkout or other steps here either: see lgtm.yml.
+    steps:
+      - uses: Temikus/lgtm@{{.Ref}}
+
+  recheck:
+    if: github.event.workflow_run.event != 'pull_request_review' && github.event.workflow_run.conclusion != 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      checks: write
+      issues: write
+      pull-requests: write
+      contents: read
+      # Read-only: lets LGTM see commit statuses from CI that isn't Actions.
+      statuses: read
     # No checkout or other steps here either: see lgtm.yml.
     steps:
       - uses: Temikus/lgtm@{{.Ref}}

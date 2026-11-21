@@ -76,25 +76,31 @@ func Run(ctx context.Context, env Env) (int, error) {
 		if p.WorkflowRun == nil {
 			return env.skip("workflow_run without a run")
 		}
-		review := p.WorkflowRun.Event == "pull_request_review"
-		// A CI run that passed, or was cancelled or skipped, never changes a verdict.
-		if !review && !ci.Failure(p.WorkflowRun.Conclusion) {
-			return env.skip("workflow_run that didn't fail")
-		}
-		pr, err := findOpenPR(ctx, env.GH, owner, repo, p.WorkflowRun.HeadSHA)
-		if err != nil || pr == nil {
-			return 0, err
-		}
-		if review {
-			return env.review(ctx, *pr, false)
-		}
-		_, err = env.recheck(ctx, *pr)
-		if err != nil {
-			return 1, err
-		}
-		return 0, nil
+		return env.workflowRun(ctx, owner, repo, p.WorkflowRun.Event, p.WorkflowRun.HeadSHA, p.WorkflowRun.Conclusion)
 	}
 	return env.skip("event %q", env.EventName)
+}
+
+// workflowRun handles a finished run of another workflow: a review run
+// flips an approved needs-human check, and a failed CI run rechecks an
+// approve.
+func (env Env) workflowRun(ctx context.Context, owner, repo, event, sha, conclusion string) (int, error) {
+	review := event == "pull_request_review"
+	// A CI run that passed, or was cancelled or skipped, never changes a verdict.
+	if !review && !ci.Failure(conclusion) {
+		return env.skip("workflow_run that didn't fail")
+	}
+	pr, err := findOpenPR(ctx, env.GH, owner, repo, sha)
+	if err != nil || pr == nil {
+		return 0, err
+	}
+	if review {
+		return env.review(ctx, *pr, false)
+	}
+	if _, err := env.recheck(ctx, *pr); err != nil {
+		return 1, err
+	}
+	return 0, nil
 }
 
 func (env Env) skip(format string, args ...any) (int, error) {
@@ -135,18 +141,7 @@ func (env Env) score(ctx context.Context, pr prstate.PR) (int, error) {
 	if env.StepSummary != nil {
 		_, _ = io.WriteString(env.StepSummary, report.Summary(r))
 	}
-	final := r.Verdict.Verdict
-	if final == verdict.Approve {
-		// CI may have failed while the model was answering: too late for the
-		// cap, and before there was a check run for the workflow_run job to
-		// find. A read error holds nothing, like the cap's own.
-		held, err := env.recheck(ctx, pr)
-		if err != nil {
-			_, _ = fmt.Fprintln(env.Log, "lgtm: couldn't re-read CI after scoring:", err)
-		} else if held {
-			final = verdict.NeedsHuman
-		}
-	}
+	final := env.settle(ctx, pr, r.Verdict.Verdict)
 	if env.SetOutput != nil && !r.Blind {
 		env.SetOutput("verdict", string(final))
 		if cfg.ShowScores {
@@ -158,6 +153,24 @@ func (env Env) score(ctx context.Context, pr prstate.PR) (int, error) {
 		return 0, nil
 	}
 	return exitCode(cfg.Mode, final), nil
+}
+
+// settle reads CI again once an approve is published and returns the
+// verdict that stands. CI may have failed while the model was answering: too
+// late for the cap, and before there was a check run for the workflow_run
+// job to find. A read error holds nothing, like the cap's own.
+func (env Env) settle(ctx context.Context, pr prstate.PR, v verdict.Verdict) verdict.Verdict {
+	if v != verdict.Approve {
+		return v
+	}
+	held, err := env.recheck(ctx, pr)
+	if err != nil {
+		_, _ = fmt.Fprintln(env.Log, "lgtm: couldn't re-read CI after scoring:", err)
+	}
+	if held {
+		return verdict.NeedsHuman
+	}
+	return v
 }
 
 // floor applies cfg.Rescore against LGTM's earlier check run on the same

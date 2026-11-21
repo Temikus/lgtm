@@ -57,6 +57,8 @@ type world struct {
 	comments   []any
 	// required are the base branch's required check names.
 	required []string
+	// onCheckPost runs when a check run is created.
+	onCheckPost func(body map[string]any)
 }
 
 func newWorld(t *testing.T, cfgTOML string) *world {
@@ -113,7 +115,11 @@ func (w *world) record(route string) http.HandlerFunc {
 		w.mu.Lock()
 		w.writes = append(w.writes, route)
 		w.bodies[route] = b
+		hook := w.onCheckPost
 		w.mu.Unlock()
+		if hook != nil && route == "POST /repos/o/r/check-runs" {
+			hook(b)
+		}
 		if strings.Contains(route, "labels") {
 			ghtest.JSON(rw, 200, []any{})
 			return
@@ -572,5 +578,33 @@ func TestRun_FailedCINotesTheCommentOnce(t *testing.T) {
 	}
 	if w.wrote("PATCH /repos/o/r/issues/comments/{id}") {
 		t.Error("the note is already there")
+	}
+}
+
+// A required check that fails while the model is answering is too late for
+// the cap and too early for the workflow_run job, so scoring reads CI again
+// once its approve is published.
+func TestRun_CIFailsWhileScoring(t *testing.T) {
+	w := newWorld(t, enforce)
+	w.required = []string{"test"}
+	w.onCheckPost = func(body map[string]any) {
+		w.checks = []any{lgtmCheck(fmt.Sprint(body["external_id"]), fmt.Sprint(body["conclusion"])), ciCheck("test", "failure")}
+	}
+	outputs := map[string]string{}
+	e := env(w, "pull_request_target", event(t, map[string]any{"action": "opened", "pull_request": prJSON(false)}), &fakeDecider{noul: 0.99})
+	e.SetOutput = func(k, v string) { outputs[k] = v }
+
+	code, err := Run(context.Background(), e)
+	if err != nil || code != 1 {
+		t.Fatalf("code = %d err = %v; a held PR fails the enforce job", code, err)
+	}
+	if w.bodies["POST /repos/o/r/check-runs"]["conclusion"] != "success" {
+		t.Fatalf("the scoring itself should approve: %v", w.bodies["POST /repos/o/r/check-runs"])
+	}
+	if got := w.bodies["PATCH /repos/o/r/check-runs/{id}"]["external_id"]; got != "lgtm/v1 mode=enforce verdict=needs-human" {
+		t.Errorf("check update = %v", got)
+	}
+	if outputs["verdict"] != "needs-human" || !w.wrote("POST /repos/o/r/issues/7/labels") {
+		t.Errorf("outputs = %v writes = %v", outputs, w.writes)
 	}
 }

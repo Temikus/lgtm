@@ -88,7 +88,11 @@ func Run(ctx context.Context, env Env) (int, error) {
 		if review {
 			return env.review(ctx, *pr, false)
 		}
-		return env.recheck(ctx, *pr)
+		_, err = env.recheck(ctx, *pr)
+		if err != nil {
+			return 1, err
+		}
+		return 0, nil
 	}
 	return env.skip("event %q", env.EventName)
 }
@@ -131,8 +135,20 @@ func (env Env) score(ctx context.Context, pr prstate.PR) (int, error) {
 	if env.StepSummary != nil {
 		_, _ = io.WriteString(env.StepSummary, report.Summary(r))
 	}
+	final := r.Verdict.Verdict
+	if final == verdict.Approve {
+		// CI may have failed while the model was answering: too late for the
+		// cap, and before there was a check run for the workflow_run job to
+		// find. A read error holds nothing, like the cap's own.
+		held, err := env.recheck(ctx, pr)
+		if err != nil {
+			_, _ = fmt.Fprintln(env.Log, "lgtm: couldn't re-read CI after scoring:", err)
+		} else if held {
+			final = verdict.NeedsHuman
+		}
+	}
 	if env.SetOutput != nil && !r.Blind {
-		env.SetOutput("verdict", string(r.Verdict.Verdict))
+		env.SetOutput("verdict", string(final))
 		if cfg.ShowScores {
 			env.SetOutput("score", fmt.Sprintf("%.4f", r.Verdict.Aggregate))
 		}
@@ -141,7 +157,7 @@ func (env Env) score(ctx context.Context, pr prstate.PR) (int, error) {
 		_, _ = fmt.Fprintf(env.Log, "lgtm: %s already approved %s\n", pub.ApprovedBy, pr.HeadSHA)
 		return 0, nil
 	}
-	return exitCode(cfg.Mode, r.Verdict.Verdict), nil
+	return exitCode(cfg.Mode, final), nil
 }
 
 // floor applies cfg.Rescore against LGTM's earlier check run on the same
@@ -221,47 +237,47 @@ func (env Env) review(ctx context.Context, pr prstate.PR, scoreIfMissing bool) (
 	return 0, pub.Label(ctx, false)
 }
 
-// recheck holds an approve when a required check failed after LGTM scored
-// the commit: LGTM usually runs alongside CI, so the failed-CI cap rarely
-// sees the failure. It never calls the model, and it only ever lowers a
-// verdict. A human approval that already passed the check stands.
-func (env Env) recheck(ctx context.Context, pr prstate.PR) (int, error) {
+// recheck holds an approve when a required check failed after LGTM read
+// CI: LGTM usually runs alongside it, so the failed-CI cap rarely sees the
+// failure. It reports whether it held the PR. It never calls the model, and
+// it only ever lowers a verdict. A human approval that already passed the
+// check stands.
+func (env Env) recheck(ctx context.Context, pr prstate.PR) (bool, error) {
 	run, err := ghout.FindCheck(ctx, env.GH, pr.Owner, pr.Repo, pr.HeadSHA)
 	if err != nil {
-		return 1, err
+		return false, err
 	}
 	if run == nil {
-		return env.skip("no LGTM check on %s; scoring will read CI itself", pr.HeadSHA)
+		_, _ = env.skip("no LGTM check on %s; scoring will read CI itself", pr.HeadSHA)
+		return false, nil
 	}
 	st, _ := ghout.DecodeState(run.GetExternalID())
 	if st.Verdict != verdict.Approve || st.Human {
-		return env.skip("a failed run on %s, which LGTM didn't approve", pr.HeadSHA)
+		_, _ = env.skip("a failed run on %s, which LGTM didn't approve", pr.HeadSHA)
+		return false, nil
 	}
 	cfg, err := config.FetchAtSHA(ctx, env.GH, pr.Owner, pr.Repo, pr.BaseSHA)
 	if err != nil {
-		return 1, err
+		return false, err
 	}
 	failed, err := ci.Failed(ctx, env.GH, pr.Owner, pr.Repo, pr.BaseRef, pr.HeadSHA, cfg.CIRequired, engine.OwnCheck)
-	if err != nil {
-		return 1, err
-	}
-	if len(failed) == 0 {
-		return env.skip("a failed run on %s with no required check failed", pr.HeadSHA)
+	if err != nil || len(failed) == 0 {
+		return false, err
 	}
 	_, _ = fmt.Fprintf(env.Log, "lgtm: required checks failed on %s after scoring: %s\n", pr.HeadSHA, strings.Join(failed, ", "))
 	if err := ghout.MarkCIFailed(ctx, env.GH, pr.Owner, pr.Repo, run, failed); err != nil {
-		return 1, err
+		return false, err
 	}
 	pub := ghout.Publisher{GH: env.GH, PR: pr, CommentAuthor: env.CommentAuthor}
 	if !st.Blind {
 		if err := pub.Note(ctx, ghout.CIFailedNote(failed)); err != nil {
-			return 1, err
+			return true, err
 		}
 	}
 	if st.Mode == config.Enforce {
-		return 0, pub.Label(ctx, true)
+		return true, pub.Label(ctx, true)
 	}
-	return 0, nil
+	return true, nil
 }
 
 // findOpenPR maps a workflow_run head SHA to its PR. workflow_run payloads

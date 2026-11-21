@@ -93,6 +93,11 @@ func TestComment_Golden(t *testing.T) {
 			r.LockSources = []prstate.LockSource{{Path: "package-lock.json", Host: "evil.example"}}
 			return r
 		}(),
+		"enforce_lockfile_hash": func() *engine.Result {
+			r := result(config.Enforce, verdict.Result{Verdict: verdict.NeedsHuman, Raw: verdict.Approve, Aggregate: 0.97, Caps: []verdict.CapKind{verdict.LockfileHash}})
+			r.HashSwaps = []prstate.HashSwap{{Path: "web/package-lock.json", Line: `"integrity": "sha512-BBBB",`}}
+			return r
+		}(),
 		"shadow_blind": func() *engine.Result {
 			r := result(config.Shadow, verdict.Result{Verdict: verdict.Deny, Raw: verdict.Deny, Aggregate: 0.05})
 			r.Blind = true

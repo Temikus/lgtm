@@ -86,9 +86,9 @@ func Run(ctx context.Context, env Env) (int, error) {
 // approve.
 func (env Env) workflowRun(ctx context.Context, owner, repo, event, sha, conclusion string) (int, error) {
 	review := event == "pull_request_review"
-	// A CI run that passed, or was cancelled or skipped, never changes a verdict.
-	if !review && !ci.Failure(conclusion) {
-		return env.skip("workflow_run that didn't fail")
+	// A cancelled or skipped CI run never changes a verdict.
+	if !review && !ci.Failure(conclusion) && conclusion != "success" {
+		return env.skip("workflow_run that neither failed nor passed")
 	}
 	pr, err := findOpenPR(ctx, env.GH, owner, repo, sha)
 	if err != nil || pr == nil {
@@ -97,7 +97,12 @@ func (env Env) workflowRun(ctx context.Context, owner, repo, event, sha, conclus
 	if review {
 		return env.review(ctx, *pr, false)
 	}
-	if _, err := env.recheck(ctx, *pr); err != nil {
+	if conclusion == "success" {
+		err = env.restore(ctx, *pr)
+	} else {
+		_, err = env.recheck(ctx, *pr)
+	}
+	if err != nil {
 		return 1, err
 	}
 	return 0, nil
@@ -187,6 +192,9 @@ func (env Env) floor(ctx context.Context, cfg *config.Config, r *engine.Result) 
 	earlier := st.Verdict
 	if st.Human {
 		earlier = verdict.NeedsHuman // LGTM itself didn't approve
+	}
+	if st.CIHeld {
+		earlier = verdict.Approve // the hold was CI's; this scoring reads CI itself
 	}
 	r.Verdict = verdict.Floor(cfg.Rescore, earlier, r.Verdict)
 	return nil
@@ -291,6 +299,47 @@ func (env Env) recheck(ctx context.Context, pr prstate.PR) (bool, error) {
 		return true, pub.Label(ctx, true)
 	}
 	return true, nil
+}
+
+// restore undoes a recheck hold once no required check is failing, such as
+// after a flaky test passes on a re-run. It never calls the model, and it
+// leaves every other hold alone.
+func (env Env) restore(ctx context.Context, pr prstate.PR) error {
+	run, err := ghout.FindCheck(ctx, env.GH, pr.Owner, pr.Repo, pr.HeadSHA)
+	if err != nil {
+		return err
+	}
+	st, _ := ghout.DecodeState(run.GetExternalID())
+	if run == nil || !st.CIHeld || st.Human {
+		_, _ = env.skip("a passing run on %s, which a failed check isn't holding", pr.HeadSHA)
+		return nil
+	}
+	cfg, err := config.FetchAtSHA(ctx, env.GH, pr.Owner, pr.Repo, pr.BaseSHA)
+	if err != nil {
+		return err
+	}
+	failed, err := ci.Failed(ctx, env.GH, pr.Owner, pr.Repo, pr.BaseRef, pr.HeadSHA, cfg.CIRequired, engine.OwnCheck)
+	if err != nil {
+		return err
+	}
+	if len(failed) > 0 {
+		_, _ = env.skip("a passing run on %s; still failing: %s", pr.HeadSHA, strings.Join(failed, ", "))
+		return nil
+	}
+	_, _ = fmt.Fprintf(env.Log, "lgtm: required checks pass on %s again, so the approve stands\n", pr.HeadSHA)
+	if err := ghout.MarkCIPassed(ctx, env.GH, pr.Owner, pr.Repo, run); err != nil {
+		return err
+	}
+	pub := ghout.Publisher{GH: env.GH, PR: pr, CommentAuthor: env.CommentAuthor}
+	if !st.Blind {
+		if err := pub.Unnote(ctx); err != nil {
+			return err
+		}
+	}
+	if st.Mode == config.Enforce {
+		return pub.Label(ctx, false)
+	}
+	return nil
 }
 
 // findOpenPR maps a workflow_run head SHA to its PR. workflow_run payloads

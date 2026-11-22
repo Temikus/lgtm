@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -133,17 +134,24 @@ type State struct {
 	Human bool
 	// Blind means the verdict was recorded but not shown.
 	Blind bool
+	// CIHeld means LGTM approved, then held the PR only because a required
+	// check failed afterwards. A passing re-run undoes it.
+	CIHeld bool
 }
 
 const (
 	statePrefix = "lgtm/v1"
 	humanSuffix = " human=1"
 	blindSuffix = " blind=1" // shadow only, so never with humanSuffix
+	ciSuffix    = " ci=1"
 )
 
 // EncodeState formats a State for external_id.
 func EncodeState(s State) string {
 	out := fmt.Sprintf("%s mode=%s verdict=%s", statePrefix, s.Mode, s.Verdict)
+	if s.CIHeld {
+		out += ciSuffix
+	}
 	if s.Blind {
 		out += blindSuffix
 	}
@@ -158,8 +166,9 @@ func DecodeState(s string) (State, bool) {
 		return st, false
 	}
 	st.Mode, st.Verdict = config.Mode(mode), verdict.Verdict(v)
-	st.Human = strings.HasSuffix(s, humanSuffix)
-	st.Blind = strings.HasSuffix(s, blindSuffix)
+	flags := strings.Fields(s)
+	has := func(suffix string) bool { return slices.Contains(flags, strings.TrimSpace(suffix)) }
+	st.Human, st.Blind, st.CIHeld = has(humanSuffix), has(blindSuffix), has(ciSuffix)
 	switch st.Verdict {
 	case verdict.Approve, verdict.Deny, verdict.NeedsHuman:
 	default:
@@ -214,7 +223,7 @@ func MarkApproved(ctx context.Context, gh *github.Client, owner, repo string, ru
 // check keeps its title and summary, which show no verdict.
 func MarkCIFailed(ctx context.Context, gh *github.Client, owner, repo string, run *github.CheckRun, failed []string) error {
 	st, _ := DecodeState(run.GetExternalID())
-	st.Verdict = verdict.NeedsHuman
+	st.Verdict, st.CIHeld = verdict.NeedsHuman, true
 	// GitHub counts neutral as passing, so enforce mode fails the check.
 	conclusion, title := "failure", "needs human review (a required check failed)"
 	if st.Mode == config.Shadow {
@@ -237,13 +246,58 @@ func MarkCIFailed(ctx context.Context, gh *github.Client, owner, repo string, ru
 	return nil
 }
 
+// MarkCIPassed undoes MarkCIFailed once no required check is failing: the
+// approve the model gave this commit stands again. The original title isn't
+// stored, so the new one says what happened.
+func MarkCIPassed(ctx context.Context, gh *github.Client, owner, repo string, run *github.CheckRun) error {
+	st, _ := DecodeState(run.GetExternalID())
+	st.Verdict, st.CIHeld = verdict.Approve, false
+	conclusion, title := "success", "approve (required checks passed on a re-run)"
+	if st.Mode == config.Shadow {
+		conclusion, title = "neutral", "would have: "+title
+	}
+	opts := github.UpdateCheckRunOptions{
+		Name:        CheckName,
+		ExternalID:  new(EncodeState(st)),
+		Status:      new("completed"),
+		Conclusion:  new(conclusion),
+		CompletedAt: &github.Timestamp{Time: time.Now()},
+	}
+	if !st.Blind {
+		opts.Output = &github.CheckRunOutput{Title: new(title), Summary: new(dropCINote(run.GetOutput().GetSummary()))}
+	}
+	if _, _, err := gh.Checks.UpdateCheckRun(ctx, owner, repo, run.GetID(), opts); err != nil {
+		return fmt.Errorf("updating check run: %w", err)
+	}
+	return nil
+}
+
+const ciNotePrefix = "**Update:** a required check failed after LGTM scored this commit ("
+
+// dropCINote removes the lines CIFailedNote added, and the blank line after
+// one that leads the text.
+func dropCINote(s string) string {
+	lines := strings.Split(s, "\n")
+	out := lines[:0]
+	for i := 0; i < len(lines); i++ {
+		if strings.HasPrefix(lines[i], ciNotePrefix) {
+			if len(out) == 0 && i+1 < len(lines) && lines[i+1] == "" {
+				i++
+			}
+			continue
+		}
+		out = append(out, lines[i])
+	}
+	return strings.Join(out, "\n")
+}
+
 // CIFailedNote is the line MarkCIFailed and Publisher.Note add.
 func CIFailedNote(failed []string) string {
 	names := make([]string, len(failed))
 	for i, f := range failed {
 		names[i] = report.Escape(f)
 	}
-	return fmt.Sprintf("**Update:** a required check failed after LGTM scored this commit (%s), so it now needs human review.", strings.Join(names, ", "))
+	return ciNotePrefix + strings.Join(names, ", ") + "), so it now needs human review."
 }
 
 // Note adds a line under the marker of the sticky comment, once. The full
@@ -270,10 +324,34 @@ func (p Publisher) Note(ctx context.Context, note string) error {
 	return nil
 }
 
+// Unnote removes the CI-failed line from the sticky comment, which leaves
+// the comment as scoring wrote it.
+func (p Publisher) Unnote(ctx context.Context) error {
+	for c, err := range p.GH.Issues.ListCommentsIter(ctx, p.PR.Owner, p.PR.Repo, p.PR.Number, &github.IssueListCommentsOptions{ListOptions: github.ListOptions{PerPage: 100}}) {
+		if err != nil {
+			return fmt.Errorf("listing comments: %w", err)
+		}
+		rest, ok := strings.CutPrefix(c.GetBody(), report.Marker+"\n")
+		if c.GetUser().GetLogin() != p.CommentAuthor || !ok {
+			continue
+		}
+		body := report.Marker + "\n" + dropCINote(rest)
+		if body == c.GetBody() {
+			return nil
+		}
+		if _, _, err := p.GH.Issues.UpdateComment(ctx, p.PR.Owner, p.PR.Repo, c.GetID(), github.IssueCommentRequest{Body: body}); err != nil {
+			return fmt.Errorf("updating comment: %w", err)
+		}
+		return nil
+	}
+	return nil
+}
+
 // approvedOutput is the check run state, title, and summary for a
 // needs-human verdict that a qualifying human approved.
 func approvedOutput(st State, by, summary string) (ext, title, sum string) {
-	st.Verdict = verdict.Approve
+	// A human lifted the hold, so a later CI run changes nothing.
+	st.Verdict, st.CIHeld = verdict.Approve, false
 	return EncodeState(st) + humanSuffix,
 		fmt.Sprintf("approved by %s · LGTM had asked for human review", by),
 		fmt.Sprintf("A human with write access (%s) approved this commit, so the check passes.\n\n%s", report.Escape(by), summary)

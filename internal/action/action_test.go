@@ -392,6 +392,7 @@ func TestRun_RescoreFloor(t *testing.T) {
 		{"earlier needs-human", "", check("needs-human", ""), "needs-human"},
 		{"earlier deny", "", check("deny", ""), "deny"},
 		{"earlier human approval", "", check("approve", " human=1"), "needs-human"},
+		{"earlier CI hold, CI now green", "", check("needs-human", " ci=1"), "approve"},
 		{"no_approve after deny", "rescore = \"no_approve\"\n", check("deny", ""), "needs-human"},
 		{"latest after deny", "rescore = \"latest\"\n", check("deny", ""), "approve"},
 	}
@@ -474,7 +475,7 @@ func TestRun_FailedCIAfterApproveHolds(t *testing.T) {
 		t.Fatalf("code = %d err = %v calls = %d", code, err, d.calls)
 	}
 	check := w.bodies["PATCH /repos/o/r/check-runs/{id}"]
-	if check["external_id"] != "lgtm/v1 mode=enforce verdict=needs-human" || check["conclusion"] != "failure" {
+	if check["external_id"] != "lgtm/v1 mode=enforce verdict=needs-human ci=1" || check["conclusion"] != "failure" {
 		t.Errorf("check update = %v", check)
 	}
 	if out, _ := check["output"].(map[string]any); out == nil || !strings.Contains(fmt.Sprint(out["summary"]), "test") || !strings.Contains(fmt.Sprint(out["summary"]), "Scores.") {
@@ -496,12 +497,101 @@ func TestRun_FailedCIAfterApproveHolds(t *testing.T) {
 // flow passes the check.
 func TestRun_ApprovalAfterRecheckPasses(t *testing.T) {
 	w := newWorld(t, enforce)
-	w.checks = []any{lgtmCheck("lgtm/v1 mode=enforce verdict=needs-human", "failure")}
+	w.checks = []any{lgtmCheck("lgtm/v1 mode=enforce verdict=needs-human ci=1", "failure")}
 	w.reviews = []any{map[string]any{"user": map[string]any{"login": "alice"}, "state": "APPROVED", "commit_id": "head111"}}
 	w.perms["alice"] = "write"
 	code, err := Run(context.Background(), env(w, "pull_request_review", reviewEvent(t, false), &fakeDecider{}))
 	if err != nil || code != 0 || w.bodies["PATCH /repos/o/r/check-runs/{id}"]["conclusion"] != "success" {
 		t.Errorf("code = %d err = %v update = %v", code, err, w.bodies["PATCH /repos/o/r/check-runs/{id}"])
+	}
+	if got := w.bodies["PATCH /repos/o/r/check-runs/{id}"]["external_id"]; got != "lgtm/v1 mode=enforce verdict=approve human=1" {
+		t.Errorf("external_id = %v; a human approval ends the CI hold", got)
+	}
+}
+
+// heldCheck is an approve that a failed required check turned into a hold.
+func heldCheck(mode, flags, conclusion string) map[string]any {
+	c := lgtmCheck("lgtm/v1 mode="+mode+" verdict=needs-human ci=1"+flags, conclusion)
+	c["output"] = map[string]any{"title": "needs human review (a required check failed)", "summary": ghout.CIFailedNote([]string{"test"}) + "\n\nScores."}
+	return c
+}
+
+func heldComment() map[string]any {
+	c := stickyComment()
+	c["body"] = "<!-- lgtm -->\n" + ghout.CIFailedNote([]string{"test"}) + "\n### LGTM · approve\n"
+	return c
+}
+
+// A flaky check that passes on a re-run gives the approve back.
+func TestRun_PassingRerunRestoresApprove(t *testing.T) {
+	w := newWorld(t, enforce)
+	w.required = []string{"test"}
+	w.checks = []any{heldCheck("enforce", "", "failure"), ciCheck("test", "success")}
+	w.comments = []any{heldComment()}
+	d := &fakeDecider{}
+
+	code, err := Run(context.Background(), env(w, "workflow_run", ciRun(t, "success"), d))
+	if err != nil || code != 0 || d.calls != 0 {
+		t.Fatalf("code = %d err = %v calls = %d", code, err, d.calls)
+	}
+	check := w.bodies["PATCH /repos/o/r/check-runs/{id}"]
+	out, _ := check["output"].(map[string]any)
+	if check["external_id"] != "lgtm/v1 mode=enforce verdict=approve" || check["conclusion"] != "success" || out["summary"] != "Scores." {
+		t.Errorf("check update = %v", check)
+	}
+	if body := w.bodies["PATCH /repos/o/r/issues/comments/{id}"]["body"]; body != stickyComment()["body"] {
+		t.Errorf("comment = %q, want it as scoring wrote it", body)
+	}
+	if !w.wrote("DELETE /repos/o/r/issues/7/labels/{name}") {
+		t.Error("enforce mode should remove the needs-human label")
+	}
+}
+
+func TestRun_PassingRunChangesNothing(t *testing.T) {
+	for name, checks := range map[string][]any{
+		"another required check still fails": {heldCheck("enforce", "", "failure"), ciCheck("test", "failure")},
+		"the hold is the model's":            {lgtmCheck("lgtm/v1 mode=enforce verdict=needs-human", "failure"), ciCheck("test", "success")},
+		"a human approved the held PR":       {lgtmCheck("lgtm/v1 mode=enforce verdict=approve human=1", "success"), ciCheck("test", "success")},
+		"no LGTM check yet":                  {ciCheck("test", "success")},
+	} {
+		w := newWorld(t, enforce)
+		w.required = []string{"test"}
+		w.checks = checks
+		w.comments = []any{heldComment()}
+		d := &fakeDecider{}
+		if code, err := Run(context.Background(), env(w, "workflow_run", ciRun(t, "success"), d)); err != nil || code != 0 || d.calls != 0 || len(w.writes) != 0 {
+			t.Errorf("%s: code = %d err = %v calls = %d writes = %v", name, code, err, d.calls, w.writes)
+		}
+	}
+}
+
+func TestRun_PassingRerunInShadowAndBlind(t *testing.T) {
+	w := newWorld(t, "")
+	w.required = []string{"test"}
+	w.checks = []any{heldCheck("shadow", "", "neutral"), ciCheck("test", "success")}
+	w.comments = []any{heldComment()}
+	if code, err := Run(context.Background(), env(w, "workflow_run", ciRun(t, "success"), &fakeDecider{})); err != nil || code != 0 {
+		t.Fatalf("code = %d err = %v", code, err)
+	}
+	check := w.bodies["PATCH /repos/o/r/check-runs/{id}"]
+	out, _ := check["output"].(map[string]any)
+	if check["conclusion"] != "neutral" || check["external_id"] != "lgtm/v1 mode=shadow verdict=approve" || out["title"] != "would have: approve (required checks passed on a re-run)" {
+		t.Errorf("check update = %v", check)
+	}
+	if w.wrote("DELETE /repos/o/r/issues/7/labels/{name}") {
+		t.Error("shadow mode has no label to remove")
+	}
+
+	w = newWorld(t, "")
+	w.required = []string{"test"}
+	w.checks = []any{lgtmCheck("lgtm/v1 mode=shadow verdict=needs-human ci=1 blind=1", "neutral"), ciCheck("test", "success")}
+	w.comments = []any{stickyComment()}
+	if code, err := Run(context.Background(), env(w, "workflow_run", ciRun(t, "success"), &fakeDecider{})); err != nil || code != 0 {
+		t.Fatalf("code = %d err = %v", code, err)
+	}
+	check = w.bodies["PATCH /repos/o/r/check-runs/{id}"]
+	if check["external_id"] != "lgtm/v1 mode=shadow verdict=approve blind=1" || check["output"] != nil || len(w.writes) != 1 {
+		t.Errorf("a blind PR changes only its state: %v, writes %v", check, w.writes)
 	}
 }
 
@@ -540,7 +630,7 @@ func TestRun_FailedCIInShadow(t *testing.T) {
 	}
 	check := w.bodies["PATCH /repos/o/r/check-runs/{id}"]
 	out, _ := check["output"].(map[string]any)
-	if check["conclusion"] != "neutral" || check["external_id"] != "lgtm/v1 mode=shadow verdict=needs-human" || out["title"] != "would have: needs human review (a required check failed)" {
+	if check["conclusion"] != "neutral" || check["external_id"] != "lgtm/v1 mode=shadow verdict=needs-human ci=1" || out["title"] != "would have: needs human review (a required check failed)" {
 		t.Errorf("check update = %v", check)
 	}
 	if w.wrote("POST /repos/o/r/issues/7/labels") || !w.wrote("PATCH /repos/o/r/issues/comments/{id}") {
@@ -558,7 +648,7 @@ func TestRun_FailedCIOnBlindPR(t *testing.T) {
 		t.Fatalf("code = %d err = %v", code, err)
 	}
 	check := w.bodies["PATCH /repos/o/r/check-runs/{id}"]
-	if check["external_id"] != "lgtm/v1 mode=shadow verdict=needs-human blind=1" || check["output"] != nil {
+	if check["external_id"] != "lgtm/v1 mode=shadow verdict=needs-human ci=1 blind=1" || check["output"] != nil {
 		t.Errorf("check update = %v", check)
 	}
 	if len(w.writes) != 1 {
@@ -601,7 +691,7 @@ func TestRun_CIFailsWhileScoring(t *testing.T) {
 	if w.bodies["POST /repos/o/r/check-runs"]["conclusion"] != "success" {
 		t.Fatalf("the scoring itself should approve: %v", w.bodies["POST /repos/o/r/check-runs"])
 	}
-	if got := w.bodies["PATCH /repos/o/r/check-runs/{id}"]["external_id"]; got != "lgtm/v1 mode=enforce verdict=needs-human" {
+	if got := w.bodies["PATCH /repos/o/r/check-runs/{id}"]["external_id"]; got != "lgtm/v1 mode=enforce verdict=needs-human ci=1" {
 		t.Errorf("check update = %v", got)
 	}
 	if outputs["verdict"] != "needs-human" || !w.wrote("POST /repos/o/r/issues/7/labels") {

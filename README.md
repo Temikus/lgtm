@@ -24,7 +24,7 @@ gh secret set OPENROUTER_API_KEY
 Commit the files to your default branch. LGTM then runs on every PR, in **shadow mode**: it posts a check run and one comment that it updates in place, and gates nothing.
 
 - `lgtm.yml` scores PRs on `pull_request_target`. It has no checkout step, and none may be added: that job has secrets and a write token while the PR is untrusted. LGTM reads the diff through the API and its config from the base branch, so a PR can't change its own rubric or thresholds.
-- `lgtm-review.yml` updates the check without calling the model. It lets a human approval pass the check on fork PRs, whose review events get a read-only token. It also holds an approve when a required check fails after LGTM scored the commit: add your CI workflows' names to its `workflow_run.workflows` list for that. For a first-time contributor, GitHub may hold the review event's run until you re-run it from the Actions tab.
+- `lgtm-review.yml` updates the check without calling the model. It lets a human approval pass the check on fork PRs, whose review events get a read-only token. It also holds an approve when a required check fails after LGTM scored the commit, and lifts that hold when the check passes on a re-run: add your CI workflows' names to its `workflow_run.workflows` list for that. A check that had already failed when LGTM scored stays held after a re-run, until a human approves or a new push is scored. For a first-time contributor, GitHub may hold the review event's run until you re-run it from the Actions tab.
 
 ## Verdicts
 

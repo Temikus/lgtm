@@ -140,7 +140,9 @@ func newInitCmd() *cobra.Command {
 Next:
   1. Create a dedicated OpenRouter key with a spend limit.
   2. gh secret set OPENROUTER_API_KEY
-  3. Commit and push these files to the default branch.
+  3. In lgtm-review.yml, add your CI workflows' names to workflow_run.workflows,
+     so a failed required check holds an approve it arrives after.
+  4. Commit and push these files to the default branch.
 `)
 			return nil
 		},

@@ -293,3 +293,29 @@ func TestScore_SensitiveAndTooLarge(t *testing.T) {
 		t.Errorf("both checks off but still held: %+v", r.Verdict)
 	}
 }
+
+// Registry config and a hash swap in an excluded lockfile both hold, and
+// lockfile_registries clears only the config's host.
+func TestScore_RegistryConfigAndHashSwapHold(t *testing.T) {
+	raw := &prstate.Raw{
+		PR: prstate.PR{Owner: "o", Repo: "r", Number: 1, BaseSHA: "b", HeadSHA: "h", Title: "Use the mirror", Body: "Routine.", Author: "ann"},
+		Files: []prstate.File{
+			{Path: ".npmrc", Status: "modified", Additions: 1, Changes: 1, Patch: "@@ -1 +1,2 @@\n+registry=https://npm.corp.example/\n"},
+			{Path: "package-lock.json", Status: "modified", Additions: 1, Deletions: 1, Changes: 2,
+				Patch: "@@ -9,3 +9,3 @@\n       \"version\": \"1.3.0\",\n-      \"integrity\": \"sha512-AAAA\",\n+      \"integrity\": \"sha512-BBBB\",\n"},
+		},
+	}
+	snap, err := raw.Snapshot(config.DefaultExclude)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := ScoreSnapshot(context.Background(), nil, snap, Options{Config: load(t, ""), Decider: &fakeDecider{}})
+	if r.Verdict.Verdict != verdict.NeedsHuman || !slices.Contains(r.Verdict.Caps, verdict.LockfileSource) || !slices.Contains(r.Verdict.Caps, verdict.LockfileHash) {
+		t.Errorf("verdict %+v", r.Verdict)
+	}
+	cfg := load(t, `lockfile_registries = ["npm.corp.example"]`)
+	r = ScoreSnapshot(context.Background(), nil, snap, Options{Config: cfg, Decider: &fakeDecider{}})
+	if !slices.Equal(r.Verdict.Caps, []verdict.CapKind{verdict.LockfileHash}) || len(r.HashSwaps) != 1 {
+		t.Errorf("with the registry allowed: caps %v, swaps %+v", r.Verdict.Caps, r.HashSwaps)
+	}
+}

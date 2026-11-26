@@ -120,3 +120,37 @@ func TestSnapshot_LockSourcesSurviveExclude(t *testing.T) {
 		t.Errorf("lock sources = %+v", s.LockSources)
 	}
 }
+
+func TestLockSources_RegistryConfig(t *testing.T) {
+	held := []struct{ path, line string }{
+		{".npmrc", `+registry=https://evil.example/npm/`},
+		{"web/.npmrc", `+@acme:registry=https://203.0.113.9/`},
+		{".yarnrc.yml", `+npmRegistryServer: "https://evil.example"`},
+		{"pip.conf", `+extra-index-url = https://evil.example/simple`},
+		{".cargo/config.toml", `+registry = "sparse+https://evil.example/index/"`},
+		{".bundle/config", `+BUNDLE_MIRROR__HTTPS://RUBYGEMS__ORG/: "https://evil.example"`},
+		{"bunfig.toml", `+registry = "http://registry.npmjs.org"`}, // not https
+	}
+	for _, tt := range held {
+		if got := lockSources([]File{{Path: tt.path, Patch: "@@ -1 +1,2 @@\n" + tt.line + "\n"}}); len(got) == 0 {
+			t.Errorf("%s %s: not held", tt.path, tt.line)
+		}
+	}
+	clear := []struct{ path, line string }{
+		{".npmrc", `+registry=https://registry.npmjs.org/`},
+		{"pip.conf", `+index-url = https://pypi.org/simple`},
+		{".npmrc", `+engine-strict=true`},
+		{".npmrc", `+# mirror docs: https://evil.example/docs`},
+		{".cargo/config.toml", `+  "-Zthreads=8", # see https://blog.rust-lang.org/2023/11/09/parallel-rustc.html`},
+		{"tests/specs/.npmrc", `+registry=http://localhost:4261/`},
+		{".npmrc", `-registry=https://evil.example/npm/`},
+		{"docs/config.toml", `+base = "https://evil.example"`},         // not Cargo's config
+		{"src/config", `+url = "https://evil.example"`},                // not Bundler's config
+		{"README.md", `+npm config set registry https://evil.example`}, // not a config file
+	}
+	for _, tt := range clear {
+		if got := lockSources([]File{{Path: tt.path, Patch: "@@ -1 +1,2 @@\n" + tt.line + "\n"}}); len(got) != 0 {
+			t.Errorf("%s %s: held as %+v", tt.path, tt.line, got)
+		}
+	}
+}
